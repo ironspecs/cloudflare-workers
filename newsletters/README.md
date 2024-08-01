@@ -56,3 +56,10 @@ Run wrangler publish to deploy to Cloudflare.
 ```zsh
 npx wrangler deploy
 ```
+
+TODO:
+
+- Change withValidRequest to simply "handle"
+- Change to take a Result and a StatusCode.
+  - 400 codes should take Errors.
+  - 200 codes should take OKs.

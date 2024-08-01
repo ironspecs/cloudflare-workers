@@ -10,4 +10,4 @@ ENVIRONMENT = "development"
 [[d1_databases]]
 binding = "NewslettersD1"
 database_name = "newsletters"
-database_id = "cf72100e-975d-4856-bfca-11daaed18c31"
+database_id = "8af56f36-ae7e-4ba6-a8e0-5aa0fe6c16fc"

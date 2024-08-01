@@ -1,0 +1,7 @@
+/* Only for the files sent to Cloudflare. */
+{
+	// Use the base config.
+	"extends": "../tsconfig.base.json",
+	// Only include root file.
+	"include": ["./src/index.ts"]
+}

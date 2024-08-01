@@ -1,8 +1,9 @@
 import { BaseSchema, Output, safeParseAsync } from 'valibot';
 import { Err, OK, Result } from './results';
 import { Env } from '../common';
+import { createJSONResponse } from './responses';
 
-export const getRequestQueryData = async (request: Request): Promise<Result<Record<string, string>, never>> => {
+const getRequestQueryData = async (request: Request): Promise<Result<Record<string, string>, never>> => {
 	const url = new URL(request.url);
 
 	const data: Record<string, string> = {};
@@ -13,7 +14,7 @@ export const getRequestQueryData = async (request: Request): Promise<Result<Reco
 	return OK(data);
 };
 
-export const getRequestBodyData = async (
+const getRequestBodyData = async (
 	request: Request,
 ): Promise<Result<Record<string, unknown> | null, 'INVALID_JSON' | 'INVALID_FORMDATA'>> => {
 	const contentType = request.headers.get('content-type');
@@ -43,36 +44,34 @@ export const getRequestBodyData = async (
 	return OK(null);
 };
 
-export const withValidRequest = <T extends BaseSchema>(
+/**
+ * Create a request handler in a standard way for the project.
+ */
+export const handle = <T extends BaseSchema, R, E>(
 	schema: T,
-	handler: (request: Request, env: Env, data: Output<T> & { id: string }) => Promise<Response>,
+	handler: (request: Request, env: Env, data: Output<T>) => Promise<Result<R, E>>,
 ) => {
 	return async (request: Request, env: Env): Promise<Response> => {
 		const requestQueryResult = await getRequestQueryData(request);
-		if (!requestQueryResult.ok) {
-			return new Response(requestQueryResult.error, { status: 400 });
+		if (!requestQueryResult.success) {
+			return createJSONResponse(requestQueryResult, 400);
 		}
 
 		const requestDataResult = await getRequestBodyData(request);
-		if (!requestDataResult.ok) {
-			return new Response(requestDataResult.error, { status: 400 });
+		if (!requestDataResult.success) {
+			return createJSONResponse(requestDataResult, 400);
 		}
 
-		const data = {
+		const parsedResult = await safeParseAsync(schema, {
 			query: requestQueryResult.value,
 			body: requestDataResult.value,
-		};
+		});
 
-		const parseResult = await safeParseAsync(schema, data);
-		if (parseResult.success === false) {
-			return new Response(parseResult.issues.map((issue) => issue.message).join(',\n'), { status: 400 });
+		if (!parsedResult.success) {
+			return createJSONResponse({ ok: false, error: parsedResult.issues.map((issue) => issue.message) }, 400);
 		}
 
-		const id = new URL(request.url).pathname.split('/').pop();
-		if (typeof id !== 'string') {
-			return new Response('ID_MISSING', { status: 400 });
-		}
-
-		return handler(request, env, { ...data, id });
+		const result = await handler(request, env, parsedResult);
+		return createJSONResponse(result, result.success ? 200 : 400);
 	};
 };

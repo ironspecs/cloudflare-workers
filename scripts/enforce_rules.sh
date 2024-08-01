@@ -3,9 +3,11 @@
 # This script enforces specific rules for Wrangler projects within a monorepo.
 #
 # It searches each subdirectory for a wrangler.toml file. If found,
-# it then checks the corresponding package.json file to ensure it does not contain 
-# dependencies or devDependencies. If any are found, it prints an error message 
+# it then checks the corresponding package.json file to ensure it does not contain
+# dependencies or devDependencies. If any are found, it prints an error message
 # and exits with failure.
+#
+# Please move those dependencies to the root of the project.
 #
 
 # ANSI colors
@@ -21,10 +23,10 @@ for dir in */ ; do
     # Check for the existence of a wrangler.toml file
     if ls ${dir}wrangler.toml 1> /dev/null 2>&1; then
         echo "Found Wrangler configuration in ${dir}"
-        
+
         # Path to the package.json file
         package_json="${dir}package.json"
-        
+
         # Check if package.json exists
         if [ -f "$package_json" ]; then
             # Look for dependencies and devDependencies in package.json

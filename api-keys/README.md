@@ -2,13 +2,42 @@
 
 The API Keys API allows you to create, update, and delete API keys, designed to be limit access to other APIs.
 
-The GET endpoint is public, but the PUT and DELETE endpoints are protected by one or more secret keys that can be rotated.
+The GET endpoint is public.
 
-## Examples
+The PUT and DELETE endpoints are protected by one or more secret keys that can be rotated.
 
-### Create an API key
+## Example 1: Create, Get, and Delete an API key
 
-Example of PUT request to update an API key:
+```bash
+wrangler dev
+```
+
+```bash
+curl -X PUT "http://localhost:8787/api-keys/aaaaaaaaaaa" \
+     -H "Authorization: key1" \
+     -H "Content-Type: application/json" \
+     -H "Origin: http://localhost:8787" \
+     -d '{"tenantId": "aaaaaaaaaaa", "expires": 0, "policies": []}'
+
+OK%
+```
+
+```bash
+curl -X GET "http://localhost:8787/api-keys/aaaaaaaaaaa" \
+     -H "Origin: http://localhost:8787"
+
+{"tenantId":"aaaaaaaaaaa","expires":0,"policies":[],"key":"aaaaaaaaaaa"}%
+```
+
+```bash
+curl -X DELETE "http://localhost:8787/api-keys/aaaaaaaaaaa" \
+     -H "Authorization: key1" \
+     -H "Origin: http://localhost:8787"
+
+OK%
+```
+
+### Example 2: Browser
 
 ```js
 fetch('/api-keys/aaaaaaaaaaa', {
@@ -28,10 +57,6 @@ fetch('/api-keys/aaaaaaaaaaa', {
 );
 ```
 
-### Get an API key
-
-Example of GET request to get an API key:
-
 ```js
 fetch('/api-keys/aaaaaaaaaaa', {
 	method: 'GET',
@@ -48,10 +73,6 @@ fetch('/api-keys/aaaaaaaaaaa', {
 );
 ```
 
-### Delete an API key
-
-Example of DELETE request to delete an API key:
-
 ```js
 fetch('/api-keys/aaaaaaaaaaa', {
 	method: 'DELETE',
@@ -67,20 +88,4 @@ fetch('/api-keys/aaaaaaaaaaa', {
 		console.error('error', e);
 	},
 );
-```
-
-## Testing
-
-Run wrangler dev to test locally.
-
-```zsh
-npx wrangler dev
-```
-
-## Deploy to production
-
-Run wrangler publish to deploy to Cloudflare.
-
-```zsh
-npx wrangler deploy -e prod
 ```

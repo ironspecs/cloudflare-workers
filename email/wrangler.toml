@@ -1,0 +1,20 @@
+name = "email"
+main = "src/index.ts"
+compatibility_date = "2023-12-18"
+tsconfig = "tsconfig.wrangler.json"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+ENVIRONMENT = "development"
+# The local machine running wrangler dev.
+ALLOWED_ORIGINS = "http://localhost:8787"
+# Testing and passthrough keys for automation.
+ALLOWED_AUTH_KEYS = "key1,key2,key3"
+
+[env.prod.vars]
+ENVIRONMENT = "production"
+# In production, temporarily, use this test domain. If folk spam it, we can
+# test that functionality too.
+ALLOWED_ORIGINS = "https://email-prod.softwarepatterns.workers.dev"
+# In production, no test or passthrough keys should be allowed.
+ALLOWED_AUTH_KEYS = ""

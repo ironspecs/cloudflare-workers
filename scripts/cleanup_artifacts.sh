@@ -1,9 +1,9 @@
 #!/bin/sh
 #
-# Performs a cleanup operation across all Node.js projects within a monorepo. 
-# It iteratively checks and removes `node_modules`, `package-lock.json`, `dist`, and `build` directories 
-# from each project directory one level deep from the root. The script provides feedback on the presence 
-# of these items before removing them, enhancing transparency.
+# Performs a cleanup operation across all Node.js projects within a monorepo.
+# It iteratively checks and removes `node_modules`, `package-lock.json`, `dist`, and `build` directories
+# from each project directory one level deep from the root. The script provides feedback on the presence
+# of these items before removing them.
 #
 # Instructions for use:
 # 1. Place this script at the root of your monorepo.

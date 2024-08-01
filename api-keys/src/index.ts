@@ -55,35 +55,22 @@ export const isOrigin = (x: string): boolean => ORIGIN_REGEX.test(x);
 /// A policy for an API key. Prefer using the name to identify the policy instead any value
 /// in the config since we can deserialize the name into an enum in clients to optimize away
 /// code paths.
-type ApiKeyPolicy = {
-	/// The name of the policy. Is meant to be deserialized into an enum in clients.
-	name: string;
-	/// Often null.
-	config: object;
-};
-
-/// ApiKeyInfo is the type of the object stored in the API_KEYS KV store.
-type ApiKeyInfo = {
-	/// The API key's key, used to self-identify when passed around.
-	key: string;
-	/// The tenant ID of the API key.
-	tenantId: string;
-	/// Unix timestamp in seconds. It's valid to return expired API keys so clients can
-	/// cache the API key information.
-	expires: number;
-	/// The policies that the API key has.
-	policies: ApiKeyPolicy[];
-};
-
 const ApiKeyPolicySchema = object({
+	/// The name of the policy. Is meant to be deserialized into an enum in clients.
 	name: string([minLength(ID_MIN_SIZE), maxLength(ID_MAX_SIZE)]),
+	/// Often null.
 	config: object({}, unknown()),
 });
 
 const ApiKeyInfoSchema = object({
+	/// The API key's key, used to self-identify when passed around.
 	key: string([minLength(ID_MIN_SIZE), maxLength(ID_MAX_SIZE)]),
+	/// The tenant ID of the API key.
 	tenantId: string([minLength(ID_MIN_SIZE), maxLength(ID_MAX_SIZE)]),
+	/// Unix timestamp in seconds. It's valid to return expired API keys so clients can
+	/// cache the API key information.
 	expires: number(),
+	/// The policies that the API key has.
 	policies: array(ApiKeyPolicySchema, [maxLength(POLICIES_NUM_MAX)]),
 });
 

@@ -25,7 +25,7 @@ export type SubscribeOptions = Subset<
 export const subscribe = async (
 	env: Env,
 	data: SubscribeOptions,
-): Promise<Result<void, 'RESUBSCRIBED' | 'ALREADY_SUBSCRIBED' | 'UNKNOWN_HOSTNAME'>> => {
+): Promise<Result<'SUBSCRIBED', 'RESUBSCRIBED' | 'ALREADY_SUBSCRIBED' | 'UNKNOWN_HOSTNAME'>> => {
 	// Get the hostname configuration.
 	const hostnameConfig = await getHostnameConfigByHostname(env.NewslettersD1, data.hostname);
 	if (hostnameConfig === null) {
@@ -64,7 +64,7 @@ export const subscribe = async (
 		}
 		throw e;
 	}
-	return OK(undefined);
+	return OK('SUBSCRIBED');
 };
 
 export type UnsubscribeOptions = Subset<
@@ -80,7 +80,7 @@ export type UnsubscribeOptions = Subset<
 export const unsubscribe = async (
 	env: Env,
 	data: UnsubscribeOptions,
-): Promise<Result<void, 'ALREADY_UNSUBSCRIBED' | 'UNKNOWN_HOSTNAME' | 'NOT_FOUND'>> => {
+): Promise<Result<'UNSUBSCRIBED', 'ALREADY_UNSUBSCRIBED' | 'UNKNOWN_HOSTNAME' | 'NOT_FOUND'>> => {
 	// Get the hostname configuration.
 	const hostnameConfig = await getHostnameConfigByHostname(env.NewslettersD1, data.hostname);
 	if (hostnameConfig === null) {
@@ -102,13 +102,13 @@ export const unsubscribe = async (
 		unsubscribed_at: new Date(),
 	});
 
-	return OK(undefined);
+	return OK('UNSUBSCRIBED');
 };
 
 export const confirmEmail = async (
 	env: Env,
 	data: { token: string; hostname: string },
-): Promise<Result<void, 'TOKEN_NOT_FOUND' | 'TOKEN_EXPIRED' | 'ALREADY_CONFIRMED' | 'UNKNOWN_HOSTNAME'>> => {
+): Promise<Result<'EMAIL_CONFIRMED', 'TOKEN_NOT_FOUND' | 'TOKEN_EXPIRED' | 'ALREADY_CONFIRMED' | 'UNKNOWN_HOSTNAME'>> => {
 	// Get the hostname configuration.
 	const hostnameConfig = await getHostnameConfigByHostname(env.NewslettersD1, data.hostname);
 	if (hostnameConfig === null) {
@@ -116,7 +116,7 @@ export const confirmEmail = async (
 	}
 
 	const tokenResult = await consumeAuthToken(env, data.token);
-	if (!tokenResult.ok) {
+	if (!tokenResult.success) {
 		return Err(tokenResult.error);
 	}
 	const token = tokenResult.value;
@@ -126,5 +126,5 @@ export const confirmEmail = async (
 		email_confirmed_at: new Date(),
 	});
 
-	return OK(undefined);
+	return OK('EMAIL_CONFIRMED');
 };
