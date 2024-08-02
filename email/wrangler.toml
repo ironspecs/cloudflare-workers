@@ -11,6 +11,10 @@ ALLOWED_ORIGINS = "http://localhost:8787"
 # Testing and passthrough keys for automation.
 ALLOWED_AUTH_KEYS = "key1,key2,key3"
 
+[[kv_namespaces]]
+binding = "EMAIL"
+id = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+
 [env.prod.vars]
 ENVIRONMENT = "production"
 # In production, temporarily, use this test domain. If folk spam it, we can
@@ -18,3 +22,8 @@ ENVIRONMENT = "production"
 ALLOWED_ORIGINS = "https://email-prod.softwarepatterns.workers.dev"
 # In production, no test or passthrough keys should be allowed.
 ALLOWED_AUTH_KEYS = ""
+
+[[env.prod.kv_namespaces]]
+# Safe to commit and expose since outsiders can't use it.
+binding = "EMAIL"
+id = "b5a0a513426a4a6db77617804f3dae2e"

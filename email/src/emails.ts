@@ -1,22 +1,24 @@
-export type EmailContent = {
-	type: 'text/plain' | 'text/html';
-	value: string;
-};
+import { object, string, literal, optional, email as validEmail, union, is, type Output } from 'valibot';
 
-export type EmailContact = {
-	email: string;
-	name?: string;
-};
+export const EmailContentSchema = object({
+	type: union([literal('text/plain'), literal('text/html')]),
+	value: string(),
+});
+export type EmailContent = Output<typeof EmailContentSchema>;
 
-export type EmailDkimConfig = {
-	dkim_private_key: string;
-	dkim_selector: string;
-	dkim_domain: string;
-};
+export const EmailContactSchema = object({
+	email: string([validEmail()]),
+	name: optional(string()),
+});
+export type EmailContact = Output<typeof EmailContactSchema>;
 
-export const isEmailDkimConfig = (obj: any): obj is EmailDkimConfig => {
-	return typeof obj.dkim_private_key === 'string' && typeof obj.dkim_selector === 'string' && typeof obj.dkim_domain === 'string';
-};
+export const EmailDkimConfigSchema = object({
+	dkim_private_key: string(),
+	dkim_selector: string(),
+	dkim_domain: string(),
+});
+export type EmailDkimConfig = Output<typeof EmailDkimConfigSchema>;
+export const isEmailDkimConfig = (obj: any): obj is EmailDkimConfig => is(EmailDkimConfigSchema, obj);
 
 export type HTTPResponse = {
 	status: number;
