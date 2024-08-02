@@ -26,4 +26,4 @@ ALLOWED_AUTH_KEYS = ""
 [[env.prod.kv_namespaces]]
 # Safe to commit and expose since outsiders can't use it.
 binding = "EMAIL"
-id = "b5a0a513426a4a6db77617804f3dae2e"
+id = "c9d7f20618ef4afb9a7617a5397e0fd1"

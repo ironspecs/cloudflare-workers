@@ -65,3 +65,11 @@ curl -X GET http://localhost:8787/logs/ \
   -H "Authorization: key1" \
 	-H "Origin: http://localhost:8787"
 ```
+
+## Production
+
+```bash
+curl -X GET https://email-prod.softwarepatterns.workers.dev/logs/ \
+  -H "Authorization: key1" \
+	-H "Origin: http://localhost:8787"
+```

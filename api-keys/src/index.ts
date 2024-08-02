@@ -27,7 +27,7 @@
  */
 
 import { KVNamespace } from '@cloudflare/workers-types/experimental';
-import { object, string, number, unknown, array, minLength, maxLength, is } from 'valibot';
+import { object, string, number, unknown, array, minLength, maxLength, is, optional } from 'valibot';
 
 export interface Env {
 	// See https://developers.cloudflare.com/workers/runtime-apis/kv/
@@ -45,6 +45,7 @@ const POLICIES_NUM_MAX = 1000;
 const KEY_REGEX = /^[a-zA-Z0-9]+$/;
 const ORIGIN_REGEX = /^https?:\/\/[a-zA-Z0-9-]+(\.[a-zA-Z0-9-]+)*(:[0-9]+)?$/;
 const API_KEY_PATH = '/api-keys/';
+const apiKeysKVPrefix = 'API_KEYS/';
 
 const isString = (x: unknown): x is string => typeof x === 'string';
 const isNonNullObject = (x: unknown): x is Record<string, any> => typeof x === 'object' && x !== null;
@@ -157,7 +158,7 @@ export default {
 			}
 
 			if (request.method === 'GET') {
-				const value = await env.API_KEYS.get(key);
+				const value = await env.API_KEYS.get(`${apiKeysKVPrefix}/${key}`);
 				let response = null;
 				if (!value) {
 					response = new Response('Not found', { status: 404 });
@@ -200,10 +201,10 @@ export default {
 				}
 
 				// It's okay to overwrite the value if it already exists.
-				await env.API_KEYS.put(key, JSON.stringify(value));
+				await env.API_KEYS.put(`${apiKeysKVPrefix}/${key}`, JSON.stringify(value));
 				return new Response('OK');
 			} else if (request.method === 'DELETE') {
-				await env.API_KEYS.delete(key);
+				await env.API_KEYS.delete(`${apiKeysKVPrefix}/${key}`);
 				return new Response('OK');
 			} else {
 				return new Response('Invalid method', { status: 405 });

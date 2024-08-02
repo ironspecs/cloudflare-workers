@@ -1,5 +1,5 @@
 import { isHeaders } from '../common';
-import { EmailContent, EmailContact, HTTPResponse, TransactionalEmailProvider } from '../emails';
+import { EmailContent, EmailContact, HTTPResponse, TransactionalEmailProvider } from '../domain/types';
 
 export type EmailDkimConfig = {
 	/**
@@ -72,7 +72,7 @@ const applyDkim = (email: MailchannelEmail, dkimConfig: EmailDkimConfig) => {
 };
 
 export class MailchannelsEmailProvider implements TransactionalEmailProvider {
-	constructor() {}
+	constructor() { }
 
 	async sendEmail(email: {
 		from: EmailContact;

@@ -1,31 +1,17 @@
-import { Env, getAllowedOrigins, getAuthKeys } from './common';
-import { MailchannelsEmailProvider } from './email-providers/mailchannels';
+import { Env, getAllowedOrigins } from './common';
 import {
+	ApiKeyInfo,
 	EmailContactSchema,
 	EmailContentSchema,
 	EmailDkimConfigSchema,
-	EmailDkimConfig,
-	MockEmailProvider,
-	TransactionalEmailProvider,
-} from './emails';
+} from './domain/types';
 import { safeParse, object, string, array } from 'valibot';
+import { Logger, LogRouter } from './domain/logger';
+import { getDkimConfig, saveDKIMConfig } from './domain/dkim';
+import { getApiKeyInfo } from './domain/api-keys';
+import { getTransactionalEmailProvider } from './domain/emails';
 
-const logsKVPrefix = 'LOGS';
-const dkimConfigsKVPrefix = 'DKIM_CONFIGS';
 const deadLetterQueueKVPrefix = 'DEAD_LETTER_QUEUE';
-
-/**
- * Get the transactional email provider to use based on the current environment.
- * In production environments, the MailchannelsEmailProvider will be used. In
- * all other environments, the MockEmailProvider will be used.
- */
-const getTransactionalEmailProvider = (env: Env): TransactionalEmailProvider => {
-	if (env.ENVIRONMENT === 'production') {
-		return new MailchannelsEmailProvider();
-	}
-
-	return new MockEmailProvider();
-};
 
 /**
  * Handle the /retry route. This route will attempt to resend any emails that
@@ -39,7 +25,7 @@ const handleRetryFailedEmailsRoute = async (env: Env) => {
 
 		if (emailData) {
 			const { to, from, subject, content, dkim } = JSON.parse(emailData);
-			const emailSender = getTransactionalEmailProvider(env);
+			const emailSender = getTransactionalEmailProvider('mailchannels');
 			const response = await emailSender.sendEmail({ to, from, subject, content, dkim });
 
 			if (response.status === 200) {
@@ -49,15 +35,6 @@ const handleRetryFailedEmailsRoute = async (env: Env) => {
 	}
 
 	return new Response('Retries triggered');
-};
-
-/**
- * Get the DKIM configuration for a given domain. This function will return
- * null if the domain does not have a DKIM configuration.
- */
-const getDkimConfig = async (domain: string, env: Env): Promise<EmailDkimConfig | null> => {
-	const dkimConfig = await env.EMAIL.get(`${dkimConfigsKVPrefix}/${domain}`, 'json');
-	return dkimConfig ? (dkimConfig as EmailDkimConfig) : null;
 };
 
 /**
@@ -96,27 +73,36 @@ const handleSendEmailRoute = async (request: Request, env: Env): Promise<Respons
 		return new Response('Invalid request body', { status: 400 });
 	}
 
+	// Always check auth key because this is a private API.
+	const policies = await getRequestPolicies(request);
+	if (!policies) {
+		return new Response('Invalid auth key', { status: 400 });
+	}
+	const emailSendPolicy = policies.find((p) => p.name === 'email:send');
+	if (!emailSendPolicy) {
+		return new Response('Invalid auth key', { status: 400 });
+	}
+	const {
+		emailProviderName
+	} = emailSendPolicy.config;
+
 	const { to, from, subject, content } = parsedBody.output;
 
-	const transactionalEmailProvider = getTransactionalEmailProvider(env);
-
-	const dkim = await getDkimConfig(from.email.split('@')[1], env);
+	const dkim = await getDkimConfig(env, from.email.split('@')[1]);
 	if (!dkim) {
 		return new Response('DKIM not configured', { status: 400 });
 	}
 
 	const ts = Date.now().toString();
-	const redactedDkim = { ...dkim, dkim_private_key: dkim.dkim_private_key.substring(0, 10) + '...' };
-	const logEntry = { ts, to, from, subject, content, dkim: redactedDkim };
-	const response = await transactionalEmailProvider.sendEmail({ to, from, subject, content, dkim });
+	const response = await getTransactionalEmailProvider(emailProviderName).sendEmail({ to, from, subject, content, dkim });
 
 	if (response.status !== 200) {
 		await env.EMAIL.put(`${deadLetterQueueKVPrefix}/${ts}`, JSON.stringify({ to, from, subject, content, dkim }));
-		await env.EMAIL.put(`${logsKVPrefix}/${ts}`, JSON.stringify({ ...logEntry, eventName: 'email_failed' }));
+		await new Logger(env, policies).logEvent('email_failed', { to, from, subject, content, dkim });
 		return new Response('Failed to send email, queued for retry', { status: response.status });
 	}
 
-	await env.EMAIL.put(`${logsKVPrefix}/${ts}`, JSON.stringify({ ...logEntry, eventName: 'email_sent' }));
+	await new Logger(env, policies).logEvent('email_sent', { to, from, subject, content, dkim });
 	return new Response('Email sent successfully');
 };
 
@@ -134,22 +120,43 @@ const handleOptionsRequest = (): Response => {
 	});
 };
 
+
+
+/**
+ * Get the policies associated with the request.
+ */
+const getRequestPolicies = async (request: Request): Promise<ApiKeyInfo['policies'] | null> => {
+	const authorization = request.headers.get('Authorization');
+	if (!authorization) {
+		return null;
+	}
+
+	const apiKeyInfo = await getApiKeyInfo(authorization);
+	if (!apiKeyInfo) {
+		return null;
+	}
+	return apiKeyInfo.policies;
+}
+
 export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
 		if (request.method === 'OPTIONS') {
 			return handleOptionsRequest();
 		}
 
-		const allowedOrigins = getAllowedOrigins(env);
-		const origin = request.headers.get('Origin');
-		if (!origin || !allowedOrigins.includes(origin)) {
-			return new Response('Invalid origin', { status: 400 });
+		// If POST/PUT/DELETE, check origin.
+		if (['POST', 'PUT', 'DELETE'].includes(request.method)) {
+			const allowedOrigins = getAllowedOrigins(env);
+			const origin = request.headers.get('Origin');
+			if (!origin || !allowedOrigins.includes(origin)) {
+				return new Response('Invalid origin', { status: 400 });
+			}
 		}
 
-		const authKeys = getAuthKeys(env);
-		const authorization = request.headers.get('Authorization');
-		if (!authorization || !authKeys.includes(authorization)) {
-			return new Response('Invalid auth key', { status: 400 });
+		// This is a private API, so always check auth.
+		const policies = await getRequestPolicies(request);
+		if (!policies) {
+			return new Response('Invalid authorization.', { status: 400 });
 		}
 
 		const pathname = new URL(request.url).pathname;
@@ -158,13 +165,13 @@ export default {
 			return handleSendEmailRoute(request, env);
 		}
 
-		if (pathname === '/dkim-configs' && request.method === 'GET') {
+		if (pathname.startsWith('/dkim-configs') && request.method === 'GET') {
 			const domain = new URL(request.url).searchParams.get('domain');
 			if (!domain) {
 				return new Response('Invalid domain', { status: 400 });
 			}
 
-			const dkimConfig = await getDkimConfig(domain, env);
+			const dkimConfig = await getDkimConfig(env, domain);
 			return dkimConfig ? new Response(JSON.stringify(dkimConfig)) : new Response('Not found', { status: 404 });
 		}
 
@@ -185,7 +192,8 @@ export default {
 				return new Response('Invalid request body', { status: 400 });
 			}
 
-			await env.EMAIL.put(`${dkimConfigsKVPrefix}/${domain}`, JSON.stringify(parsedBody.output));
+			await saveDKIMConfig(env, parsedBody.output);
+
 			return new Response('DKIM config updated');
 		}
 
@@ -199,18 +207,12 @@ export default {
 			if (request.method === 'GET') {
 				// If no key is provided, return a list of the latest logs
 				if (!key) {
-					const timestampPrefix = Date.now().toString().slice(0, -7); // Limit by hours
-					const logs = await env.EMAIL.list({ prefix: `${logsKVPrefix}/${timestampPrefix}` });
-					const textLogs = await Promise.all(logs.keys.map((key) => env.EMAIL.get(key.name)));
-
-					return new Response(JSON.stringify(textLogs));
+					return new LogRouter(env, policies).listEvents();
 				}
 
-				const value = await env.EMAIL.get(`${logsKVPrefix}/${key}`);
-				return value ? new Response(value) : new Response('Not found', { status: 404 });
+				return new LogRouter(env, policies).readEvent(key);
 			} else if (request.method === 'DELETE') {
-				await env.EMAIL.delete(`${logsKVPrefix}/${key}`);
-				return new Response('OK');
+				return new LogRouter(env, policies).deleteEvent(key);
 			} else {
 				return new Response('Invalid method', { status: 405 });
 			}
