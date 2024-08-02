@@ -15,7 +15,6 @@ const KEY_MIN_SIZE = 10;
 const KEY_MAX_SIZE = 500;
 const KEY_REGEX = /^[a-zA-Z0-9]+$/;
 const ORIGIN_REGEX = /^https?:\/\/[a-zA-Z0-9-]+(\.[a-zA-Z0-9-]+)*(:[0-9]+)?$/;
-const VALID_EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
 
 export const isFunction = (x: unknown): x is Function => typeof x === 'function';
 export const isString = (x: unknown): x is string => typeof x === 'string';
@@ -23,7 +22,6 @@ export const isNonNullObject = (x: unknown): x is Record<string, any> => typeof 
 export const isAlphaNumeric = (x: string): boolean => KEY_REGEX.test(x);
 export const isValidKey = (x: string): boolean => x.length >= KEY_MIN_SIZE && x.length <= KEY_MAX_SIZE && isAlphaNumeric(x);
 export const isOrigin = (x: string): boolean => ORIGIN_REGEX.test(x);
-export const isValidEmail = (x: string): boolean => VALID_EMAIL_REGEX.test(x);
 export const isHeaders = (headers: any): headers is Headers => isFunction(headers.getAll) && isFunction(headers.forEach);
 
 /**

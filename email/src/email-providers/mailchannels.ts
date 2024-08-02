@@ -76,18 +76,18 @@ export class MailchannelsEmailProvider implements TransactionalEmailProvider {
 
 	async sendEmail(email: {
 		from: EmailContact;
-		to: EmailContact;
+		to: EmailContact[];
 		subject: string;
-		content: EmailContent;
+		content: EmailContent[];
 		dkim?: EmailDkimConfig;
 	}): Promise<HTTPResponse> {
 		const mailchannelEmail: MailchannelEmail = {
-			content: [email.content],
+			content: email.content,
 			subject: email.subject,
 			from: email.from,
 			personalizations: [
 				{
-					to: [email.to],
+					to: email.to,
 				},
 			],
 		};

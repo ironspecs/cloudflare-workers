@@ -30,9 +30,9 @@ export type HTTPResponse = {
 export interface TransactionalEmailProvider {
 	sendEmail(email: {
 		from: EmailContact;
-		to: EmailContact;
+		to: EmailContact[];
 		subject: string;
-		content: EmailContent;
+		content: EmailContent[];
 		dkim?: EmailDkimConfig;
 	}): Promise<HTTPResponse>;
 }
@@ -42,9 +42,9 @@ export class MockEmailProvider implements TransactionalEmailProvider {
 
 	async sendEmail(email: {
 		from: EmailContact;
-		to: EmailContact;
+		to: EmailContact[];
 		subject: string;
-		content: EmailContent;
+		content: EmailContent[];
 		dkim?: EmailDkimConfig;
 	}): Promise<HTTPResponse> {
 		return {

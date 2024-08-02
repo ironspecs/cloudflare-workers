@@ -1,4 +1,4 @@
-import { Env, getAllowedOrigins, getAuthKeys, isValidEmail } from './common';
+import { Env, getAllowedOrigins, getAuthKeys } from './common';
 import { MailchannelsEmailProvider } from './email-providers/mailchannels';
 import {
 	EmailContactSchema,
@@ -8,7 +8,7 @@ import {
 	MockEmailProvider,
 	TransactionalEmailProvider,
 } from './emails';
-import { safeParse, object, string } from 'valibot';
+import { safeParse, object, string, array } from 'valibot';
 
 const logsKVPrefix = 'LOGS';
 const dkimConfigsKVPrefix = 'DKIM_CONFIGS';
@@ -84,10 +84,10 @@ const handleSendEmailRoute = async (request: Request, env: Env): Promise<Respons
 
 	const parsedBody = safeParse(
 		object({
-			to: EmailContactSchema,
+			to: array(EmailContactSchema),
 			from: EmailContactSchema,
 			subject: string(),
-			content: EmailContentSchema,
+			content: array(EmailContentSchema),
 		}),
 		await request.json(),
 	);
@@ -98,10 +98,6 @@ const handleSendEmailRoute = async (request: Request, env: Env): Promise<Respons
 
 	const { to, from, subject, content } = parsedBody.output;
 
-	if (!isValidEmail(to.email) || !isValidEmail(from.email)) {
-		return new Response('Invalid email address', { status: 400 });
-	}
-
 	const transactionalEmailProvider = getTransactionalEmailProvider(env);
 
 	const dkim = await getDkimConfig(from.email.split('@')[1], env);
@@ -109,15 +105,18 @@ const handleSendEmailRoute = async (request: Request, env: Env): Promise<Respons
 		return new Response('DKIM not configured', { status: 400 });
 	}
 
+	const ts = Date.now().toString();
+	const redactedDkim = { ...dkim, dkim_private_key: dkim.dkim_private_key.substring(0, 10) + '...' };
+	const logEntry = { ts, to, from, subject, content, dkim: redactedDkim };
 	const response = await transactionalEmailProvider.sendEmail({ to, from, subject, content, dkim });
 
 	if (response.status !== 200) {
-		const key = Date.now().toString();
-		await env.EMAIL.put(`${deadLetterQueueKVPrefix}/${key}`, JSON.stringify({ to, from, subject, content, dkim }));
+		await env.EMAIL.put(`${deadLetterQueueKVPrefix}/${ts}`, JSON.stringify({ to, from, subject, content, dkim }));
+		await env.EMAIL.put(`${logsKVPrefix}/${ts}`, JSON.stringify({ ...logEntry, eventName: 'email_failed' }));
 		return new Response('Failed to send email, queued for retry', { status: response.status });
 	}
 
-	await env.EMAIL.put(`${logsKVPrefix}/${Date.now().toString()}`, JSON.stringify({ to, from, subject, content, dkim }));
+	await env.EMAIL.put(`${logsKVPrefix}/${ts}`, JSON.stringify({ ...logEntry, eventName: 'email_sent' }));
 	return new Response('Email sent successfully');
 };
 
@@ -194,10 +193,19 @@ export default {
 			return handleRetryFailedEmailsRoute(env);
 		}
 
-		if (pathname.startsWith('/email-logs/')) {
-			const key = pathname.slice('/email-logs/'.length);
+		if (pathname.startsWith('/logs/')) {
+			const key = pathname.slice('/logs/'.length);
 
 			if (request.method === 'GET') {
+				// If no key is provided, return a list of the latest logs
+				if (!key) {
+					const timestampPrefix = Date.now().toString().slice(0, -7); // Limit by hours
+					const logs = await env.EMAIL.list({ prefix: `${logsKVPrefix}/${timestampPrefix}` });
+					const textLogs = await Promise.all(logs.keys.map((key) => env.EMAIL.get(key.name)));
+
+					return new Response(JSON.stringify(textLogs));
+				}
+
 				const value = await env.EMAIL.get(`${logsKVPrefix}/${key}`);
 				return value ? new Response(value) : new Response('Not found', { status: 404 });
 			} else if (request.method === 'DELETE') {

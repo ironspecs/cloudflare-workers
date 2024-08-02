@@ -12,17 +12,17 @@ curl -X POST http://localhost:8787/send-email \
   -H "Content-Type: application/json" \
 	-H "Origin: http://localhost:8787" \
   -d '{
-    "to": {
+    "to": [{
       "email": "recipient@example.com"
-    },
+    }],
     "from": {
       "email": "sender@example.com"
     },
     "subject": "Test Email",
-    "content": {
+    "content": [{
       "type": "text/plain",
       "value": "This is a test email sent from curl."
-    }
+    }]
   }'
 ```
 
@@ -58,4 +58,10 @@ curl -X PUT http://localhost:8787/dkim-configs/example.com \
   -H "Content-Type: application/json" \
   -H "Origin: http://localhost:8787" \
   -d "$JSON_PAYLOAD"
+```
+
+```bash
+curl -X GET http://localhost:8787/logs/ \
+  -H "Authorization: key1" \
+	-H "Origin: http://localhost:8787"
 ```
