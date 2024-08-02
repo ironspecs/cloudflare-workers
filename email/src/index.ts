@@ -1,6 +1,13 @@
 import { Env, getAllowedOrigins, getAuthKeys, isValidEmail } from './common';
 import { MailchannelsEmailProvider } from './email-providers/mailchannels';
-import { EmailContactSchema, EmailContentSchema, EmailDkimConfig, MockEmailProvider, TransactionalEmailProvider } from './emails';
+import {
+	EmailContactSchema,
+	EmailContentSchema,
+	EmailDkimConfigSchema,
+	EmailDkimConfig,
+	MockEmailProvider,
+	TransactionalEmailProvider,
+} from './emails';
 import { safeParse, object, string } from 'valibot';
 
 const logsKVPrefix = 'LOGS';
@@ -150,6 +157,37 @@ export default {
 
 		if (pathname === '/send-email' && request.method === 'POST') {
 			return handleSendEmailRoute(request, env);
+		}
+
+		if (pathname === '/dkim-configs' && request.method === 'GET') {
+			const domain = new URL(request.url).searchParams.get('domain');
+			if (!domain) {
+				return new Response('Invalid domain', { status: 400 });
+			}
+
+			const dkimConfig = await getDkimConfig(domain, env);
+			return dkimConfig ? new Response(JSON.stringify(dkimConfig)) : new Response('Not found', { status: 404 });
+		}
+
+		if (pathname.startsWith('/dkim-configs/') && request.method === 'PUT') {
+			// get the key from the URL
+			const domain = new URL(request.url).pathname.split('/').pop();
+			if (!domain) {
+				return new Response('Invalid domain', { status: 400 });
+			}
+
+			const contentType = request.headers.get('content-type');
+			if (contentType !== 'application/json') {
+				return new Response('Invalid content type', { status: 400 });
+			}
+
+			const parsedBody = safeParse(EmailDkimConfigSchema, await request.json());
+			if (!parsedBody.success) {
+				return new Response('Invalid request body', { status: 400 });
+			}
+
+			await env.EMAIL.put(`${dkimConfigsKVPrefix}/${domain}`, JSON.stringify(parsedBody.output));
+			return new Response('DKIM config updated');
 		}
 
 		if (pathname.startsWith('/retry/') && request.method === 'GET') {
