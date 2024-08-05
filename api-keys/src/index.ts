@@ -39,7 +39,7 @@ export interface Env {
 const KEY_MIN_SIZE = 10;
 const KEY_MAX_SIZE = 500;
 const VALUE_MAX_SIZE = 500;
-const ID_MIN_SIZE = 10;
+const ID_MIN_SIZE = 4;
 const ID_MAX_SIZE = 500;
 const POLICIES_NUM_MAX = 1000;
 const KEY_REGEX = /^[a-zA-Z0-9]+$/;
@@ -161,6 +161,7 @@ export default {
 				const value = await env.API_KEYS.get(`${apiKeysKVPrefix}/${key}`);
 				let response = null;
 				if (!value) {
+					console.log('Key not found, returning 404', key);
 					response = new Response('Not found', { status: 404 });
 				} else {
 					response = new Response(value);

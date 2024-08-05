@@ -8,9 +8,9 @@ import {
 	email as validEmail,
 	union,
 	is,
+	unknown,
 	type Output
 } from 'valibot';
-import { MailchannelsEmailProvider } from '../email-providers/mailchannels';
 
 export const EmailContentSchema = object({
 	type: union([literal('text/plain'), literal('text/html')]),
@@ -36,15 +36,15 @@ export const EmailPolicySchema = union([
 	object({
 		name: literal('email:send'),
 		config: object({
-			emailProviderName: union([literal('mailchannels'), literal('mock')])
-		})
+			emailProviderName: optional(union([literal('mailchannels'), literal('mock')]))
+		}, unknown())
 	}),
 	object({
 		name: literal('email:log'),
 		config: object({
-			ttlSeconds: number(),
-			permissions: array(union([literal('read'), literal('delete')]))
-		})
+			ttlSeconds: optional(number()),
+			permissions: optional(array(union([literal('read'), literal('delete')])))
+		}, unknown())
 	}),
 ]);
 export type EmailPolicy = Output<typeof EmailPolicySchema>;

@@ -66,7 +66,7 @@ export class LogRouter {
 		}
 
 		// If they are allowed to read logs, list them.
-		if (!logPolicy.config.permissions.includes('read')) {
+		if (!logPolicy.config.permissions?.includes('read')) {
 			return new Response('Not allowed', { status: 403 });
 		}
 
@@ -84,7 +84,7 @@ export class LogRouter {
 			return new Response('Not allowed', { status: 403 });
 		}
 
-		if (!logPolicy.config.permissions.includes('delete')) {
+		if (!logPolicy.config.permissions?.includes('delete')) {
 			return new Response('Not allowed', { status: 403 });
 		}
 
@@ -101,7 +101,7 @@ export class LogRouter {
 			return new Response('Not allowed', { status: 403 });
 		}
 
-		if (!logPolicy.config.permissions.includes('read')) {
+		if (!logPolicy.config.permissions?.includes('read')) {
 			return new Response('Not allowed', { status: 403 });
 		}
 

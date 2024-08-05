@@ -24,7 +24,7 @@ export class MockEmailProvider implements TransactionalEmailProvider {
 /**
  * Get the transactional email provider based on the name.
  */
-export const getTransactionalEmailProvider = (name: string): TransactionalEmailProvider => {
+export const getTransactionalEmailProvider = (name?: string): TransactionalEmailProvider => {
 	switch (name) {
 		case 'mailchannels':
 			return new MailchannelsEmailProvider();

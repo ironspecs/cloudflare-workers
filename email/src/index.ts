@@ -74,7 +74,7 @@ const handleSendEmailRoute = async (request: Request, env: Env): Promise<Respons
 	}
 
 	// Always check auth key because this is a private API.
-	const policies = await getRequestPolicies(request);
+	const policies = await getRequestPolicies(request, env);
 	if (!policies) {
 		return new Response('Invalid auth key', { status: 400 });
 	}
@@ -125,13 +125,11 @@ const handleOptionsRequest = (): Response => {
 /**
  * Get the policies associated with the request.
  */
-const getRequestPolicies = async (request: Request): Promise<ApiKeyInfo['policies'] | null> => {
-	const authorization = request.headers.get('Authorization');
-	if (!authorization) {
-		return null;
-	}
+const getRequestPolicies = async (request: Request, env: Env): Promise<ApiKeyInfo['policies'] | null> => {
+	const apiKeyInfo = await getApiKeyInfo(request, env);
 
-	const apiKeyInfo = await getApiKeyInfo(authorization);
+	console.log("apiKeyInfo", apiKeyInfo);
+
 	if (!apiKeyInfo) {
 		return null;
 	}
@@ -154,7 +152,7 @@ export default {
 		}
 
 		// This is a private API, so always check auth.
-		const policies = await getRequestPolicies(request);
+		const policies = await getRequestPolicies(request, env);
 		if (!policies) {
 			return new Response('Invalid authorization.', { status: 400 });
 		}

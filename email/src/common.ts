@@ -3,9 +3,7 @@ export interface Env {
 	ENVIRONMENT?: string;
 
 	EMAIL: KVNamespace;
-	// LOGS: KVNamespace;
-	// DEAD_LETTER_QUEUE: KVNamespace;
-	// DKIM_CONFIGS: KVNamespace;
+	API_KEYS: Fetcher;
 
 	ALLOWED_ORIGINS?: string;
 	ALLOWED_AUTH_KEYS?: string;
