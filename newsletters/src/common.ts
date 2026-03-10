@@ -1,8 +1,7 @@
-import type { D1Database, KVNamespace, RateLimit } from '@cloudflare/workers-types';
+import type { D1Database, RateLimit } from '@cloudflare/workers-types';
 
 export interface Env {
 	NewslettersD1: D1Database;
-	NewsletterSessionsKV: KVNamespace;
 	SESSION_RATE_LIMIT: RateLimit;
 	SUBMIT_RATE_LIMIT: RateLimit;
 	VERIFY_RATE_LIMIT: RateLimit;

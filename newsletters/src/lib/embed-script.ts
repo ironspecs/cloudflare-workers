@@ -87,8 +87,7 @@ export const createEmbedScript = () => `
 			}),
 			headers: {
 				'Content-Type': 'application/json',
-				'X-CSRF-Token': context.csrfToken,
-				'X-Session-Id': context.sessionId,
+				'X-Submit-Token': context.submitToken,
 			},
 			method: 'POST',
 		});
@@ -145,9 +144,8 @@ export const createEmbedScript = () => `
 					try {
 						const payload = await submitSubscription(
 							{
-								csrfToken: session.csrfToken,
 								listName,
-								sessionId: session.sessionId,
+								submitToken: session.submitToken,
 							},
 							{
 								email: emailInput.value,

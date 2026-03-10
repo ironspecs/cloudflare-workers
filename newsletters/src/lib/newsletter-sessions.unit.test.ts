@@ -1,51 +1,19 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Env } from '../common';
-import {
-	createNewsletterSession,
-	deleteNewsletterSession,
-	NewsletterSessionAction,
-	validateNewsletterSession,
-} from './newsletter-sessions';
-
-class MemoryKvNamespace {
-	private readonly store = new Map<string, string>();
-
-	async delete(key: string): Promise<void> {
-		this.store.delete(key);
-	}
-
-	async get(key: string, type?: 'json' | 'text'): Promise<any> {
-		const value = this.store.get(key) ?? null;
-		if (value === null) {
-			return null;
-		}
-
-		if (type === 'json') {
-			return JSON.parse(value);
-		}
-
-		return value;
-	}
-
-	getWithMetadata(): Promise<any> {
-		throw new Error('Not implemented in test');
-	}
-
-	list(): Promise<any> {
-		throw new Error('Not implemented in test');
-	}
-
-	async put(key: string, value: string): Promise<void> {
-		this.store.set(key, value);
-	}
-}
+import { createNewsletterSession, NewsletterSessionAction, validateNewsletterSession } from './newsletter-sessions';
 
 let env: Env;
 
 beforeEach(() => {
 	env = {
-		NewsletterSessionsKV: new MemoryKvNamespace(),
+		HOSTNAME_CONFIG_KEKS_JSON: JSON.stringify({
+			active_id: 'kek202603101900',
+			keys: {
+				kek202603101900: 'MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=',
+			},
+		}),
 	} as unknown as Env;
+	vi.useRealTimers();
 });
 
 describe('newsletter sessions', () => {
@@ -58,10 +26,9 @@ describe('newsletter sessions', () => {
 
 		const result = await validateNewsletterSession(env, {
 			action: NewsletterSessionAction.Subscribe,
-			csrfToken: createdSession.csrfToken,
 			hostname: 'example.com',
 			origin: 'https://example.com',
-			sessionId: createdSession.sessionId,
+			submitToken: createdSession.submitToken,
 		});
 
 		expect(result.success).toBe(true);
@@ -69,11 +36,15 @@ describe('newsletter sessions', () => {
 			throw new Error('Expected a valid session');
 		}
 
-		expect(result.value.hostname).toBe('example.com');
-		expect(result.value.origin).toBe('https://example.com');
+		expect(result.value).toMatchObject({
+			action: NewsletterSessionAction.Subscribe,
+			hostname: 'example.com',
+			origin: 'https://example.com',
+			v: 1,
+		});
 	});
 
-	it('rejects a wrong CSRF token', async () => {
+	it('rejects a tampered submit token', async () => {
 		const createdSession = await createNewsletterSession(env, {
 			action: NewsletterSessionAction.Subscribe,
 			hostname: 'example.com',
@@ -82,10 +53,9 @@ describe('newsletter sessions', () => {
 
 		const result = await validateNewsletterSession(env, {
 			action: NewsletterSessionAction.Subscribe,
-			csrfToken: 'wrong-token',
 			hostname: 'example.com',
 			origin: 'https://example.com',
-			sessionId: createdSession.sessionId,
+			submitToken: `${createdSession.submitToken}broken`,
 		});
 
 		expect(result).toEqual({
@@ -94,26 +64,73 @@ describe('newsletter sessions', () => {
 		});
 	});
 
-	it('deletes a session explicitly', async () => {
+	it('rejects expired submit tokens', async () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date('2026-03-10T00:00:00.000Z'));
+
 		const createdSession = await createNewsletterSession(env, {
 			action: NewsletterSessionAction.Unsubscribe,
 			hostname: 'example.com',
 			origin: 'https://example.com',
 		});
 
-		await deleteNewsletterSession(env, createdSession.sessionId);
+		vi.advanceTimersByTime(10 * 60 * 1000 + 1);
 
 		const result = await validateNewsletterSession(env, {
 			action: NewsletterSessionAction.Unsubscribe,
-			csrfToken: createdSession.csrfToken,
 			hostname: 'example.com',
 			origin: 'https://example.com',
-			sessionId: createdSession.sessionId,
+			submitToken: createdSession.submitToken,
 		});
 
 		expect(result).toEqual({
 			success: false,
 			error: 'INVALID_SESSION',
 		});
+	});
+
+	it('rejects hostname mismatches', async () => {
+		const createdSession = await createNewsletterSession(env, {
+			action: NewsletterSessionAction.Subscribe,
+			hostname: 'example.com',
+			origin: 'https://example.com',
+		});
+
+		const result = await validateNewsletterSession(env, {
+			action: NewsletterSessionAction.Subscribe,
+			hostname: 'softwarepatterns.com',
+			origin: 'https://example.com',
+			submitToken: createdSession.submitToken,
+		});
+
+		expect(result).toEqual({
+			success: false,
+			error: 'INVALID_SESSION',
+		});
+	});
+
+	it('accepts token reuse while the token remains valid', async () => {
+		const createdSession = await createNewsletterSession(env, {
+			action: NewsletterSessionAction.Subscribe,
+			hostname: 'example.com',
+			origin: 'https://example.com',
+		});
+
+		await expect(
+			validateNewsletterSession(env, {
+				action: NewsletterSessionAction.Subscribe,
+				hostname: 'example.com',
+				origin: 'https://example.com',
+				submitToken: createdSession.submitToken,
+			}),
+		).resolves.toMatchObject({ success: true });
+		await expect(
+			validateNewsletterSession(env, {
+				action: NewsletterSessionAction.Subscribe,
+				hostname: 'example.com',
+				origin: 'https://example.com',
+				submitToken: createdSession.submitToken,
+			}),
+		).resolves.toMatchObject({ success: true });
 	});
 });

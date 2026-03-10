@@ -216,7 +216,7 @@ const main = async () => {
 			});
 			assert.equal(preflightResponse.status, 204);
 			assert.equal(preflightResponse.headers.get('access-control-allow-origin'), `https://${testHostname}`);
-			assert.match(preflightResponse.headers.get('access-control-allow-headers') ?? '', /X-CSRF-Token/);
+			assert.match(preflightResponse.headers.get('access-control-allow-headers') ?? '', /X-Submit-Token/);
 
 			const sessionResponse = await fetch(`${baseUrl}/newsletters/session`, {
 				method: 'POST',
@@ -232,8 +232,7 @@ const main = async () => {
 			assert.equal(sessionResponse.status, 200);
 			const { payload: sessionPayload } = await parseJsonResponse(sessionResponse);
 			assert.deepEqual(sessionPayload.success, true);
-			assert.equal(typeof sessionPayload.value.csrfToken, 'string');
-			assert.equal(typeof sessionPayload.value.sessionId, 'string');
+			assert.equal(typeof sessionPayload.value.submitToken, 'string');
 			assert.equal(sessionPayload.value.siteKey, testTurnstileSiteKey);
 
 			const subscribeResponse = await fetch(`${baseUrl}/subscribe`, {
@@ -241,8 +240,7 @@ const main = async () => {
 				headers: {
 					'content-type': 'application/json',
 					origin: `https://${testHostname}`,
-					'x-csrf-token': sessionPayload.value.csrfToken,
-					'x-session-id': sessionPayload.value.sessionId,
+					'x-submit-token': sessionPayload.value.submitToken,
 				},
 				body: JSON.stringify({
 					email: 'person@softwarepatterns.com',
@@ -279,8 +277,7 @@ const main = async () => {
 				headers: {
 					'content-type': 'application/json',
 					origin: `http://${localOriginHostname}:4173`,
-					'x-csrf-token': localSessionPayload.value.csrfToken,
-					'x-session-id': localSessionPayload.value.sessionId,
+					'x-submit-token': localSessionPayload.value.submitToken,
 				},
 				body: JSON.stringify({
 					email: 'dev@example.com',
@@ -302,22 +299,22 @@ const main = async () => {
 				headers: {
 					'content-type': 'application/json',
 					origin: `https://${testHostname}`,
-					'x-csrf-token': sessionPayload.value.csrfToken,
-					'x-session-id': sessionPayload.value.sessionId,
+					'x-submit-token': sessionPayload.value.submitToken,
 				},
 				body: JSON.stringify({
-					email: 'person2@example.com',
+					email: 'person2@softwarepatterns.com',
 					hostname: testHostname,
 					list_name: 'weekly',
 					turnstile_token: turnstileTestToken,
 				}),
 			});
 			const { payload: reusedSessionPayload } = await parseJsonResponse(reusedSessionResponse);
-			assert.equal(reusedSessionResponse.status, 403);
+			assert.equal(reusedSessionResponse.status, 200);
 			assert.deepEqual(reusedSessionPayload, {
-				success: false,
-				error: 'INVALID_SESSION',
+				success: true,
+				value: 'SUBSCRIBED',
 			});
+			await assertSubscriptionCount(stateDir, 2);
 
 			const unknownHostnameResponse = await fetch(`${baseUrl}/newsletters/session`, {
 				method: 'POST',

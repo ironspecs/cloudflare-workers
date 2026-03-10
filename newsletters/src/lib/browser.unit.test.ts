@@ -45,7 +45,7 @@ describe('createCorsHeaders', () => {
 		const headers = createCorsHeaders('https://example.com');
 
 		expect(headers.get('Access-Control-Allow-Origin')).toBe('https://example.com');
-		expect(headers.get('Access-Control-Allow-Headers')).toMatch(/X-CSRF-Token/);
+		expect(headers.get('Access-Control-Allow-Headers')).toMatch(/X-Submit-Token/);
 		expect(headers.get('Vary')).toBe('Origin');
 	});
 });

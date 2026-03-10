@@ -6,12 +6,7 @@ import { getHostnameConfigByHostname } from './db/hostname-config-records';
 import { subscribe, unsubscribe } from './domain/subscriptions';
 import { getBrowserRequestContext } from './lib/browser';
 import { createEmbedScript } from './lib/embed-script';
-import {
-	createNewsletterSession,
-	deleteNewsletterSession,
-	NewsletterSessionAction,
-	validateNewsletterSession,
-} from './lib/newsletter-sessions';
+import { createNewsletterSession, NewsletterSessionAction, validateNewsletterSession } from './lib/newsletter-sessions';
 import { parseRequest } from './lib/requests';
 import {
 	createHTMLResponse,
@@ -157,10 +152,9 @@ const handleProtectedSubscription = async (
 
 	const sessionValidation = await validateNewsletterSession(env, {
 		action,
-		csrfToken: getHeaderValue(request, 'X-CSRF-Token'),
 		hostname: browserContext.value.hostname,
 		origin: browserContext.value.origin,
-		sessionId: getHeaderValue(request, 'X-Session-Id'),
+		submitToken: getHeaderValue(request, 'X-Submit-Token'),
 	});
 	if (!sessionValidation.success) {
 		return createErrorResponse(sessionValidation.error, 403, browserContext.value.corsHeaders);
@@ -176,8 +170,6 @@ const handleProtectedSubscription = async (
 	}
 
 	const result = await handler(env, parsedRequest.value.body);
-	await deleteNewsletterSession(env, getHeaderValue(request, 'X-Session-Id'));
-
 	return createResultResponse(result, browserContext.value.corsHeaders);
 };
 

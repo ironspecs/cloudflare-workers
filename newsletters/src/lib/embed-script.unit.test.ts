@@ -18,5 +18,6 @@ describe('createEmbedScript', () => {
 		expect(source).toContain('turnstile.remove');
 		expect(source).toContain('/newsletters/session');
 		expect(source).toContain('/subscribe');
+		expect(source).toContain('X-Submit-Token');
 	});
 });

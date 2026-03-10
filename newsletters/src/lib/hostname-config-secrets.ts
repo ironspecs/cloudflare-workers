@@ -1,4 +1,5 @@
 import type { Env } from '../common';
+import { fromBase64, toBase64 } from './crypto';
 import type { HostnameConfigSecretsRecord } from '../db/hostname-config-secret-records';
 
 type KeksConfig = {
@@ -17,26 +18,7 @@ const IV_LENGTH = 12;
 const encodeUtf8 = (value: string) => new TextEncoder().encode(value);
 const decodeUtf8 = (value: BufferSource) => new TextDecoder().decode(value);
 
-const toBase64 = (value: Uint8Array) => {
-	let binary = '';
-	for (const byte of value) {
-		binary += String.fromCharCode(byte);
-	}
-
-	return btoa(binary);
-};
-
-const fromBase64 = (value: string) => {
-	const binary = atob(value);
-	const bytes = new Uint8Array(binary.length);
-	for (let index = 0; index < binary.length; index += 1) {
-		bytes[index] = binary.charCodeAt(index);
-	}
-
-	return bytes;
-};
-
-const parseKeksConfig = (serialized: string): KeksConfig => {
+export const parseKeksConfig = (serialized: string): KeksConfig => {
 	const parsed = JSON.parse(serialized) as Partial<KeksConfig>;
 	if (!parsed || typeof parsed !== 'object' || typeof parsed.active_id !== 'string' || !parsed.keys || typeof parsed.keys !== 'object') {
 		throw new Error('Invalid hostname config KEKs');
@@ -97,6 +79,11 @@ const decryptString = async (keyBase64: string, envelope: string, aad: Uint8Arra
 };
 
 const getKeksConfig = (env: Env) => parseKeksConfig(env.HOSTNAME_CONFIG_KEKS_JSON);
+
+export const getActiveHostnameConfigKek = (env: Pick<Env, 'HOSTNAME_CONFIG_KEKS_JSON'>): string => {
+	const keks = parseKeksConfig(env.HOSTNAME_CONFIG_KEKS_JSON);
+	return keks.keys[keks.active_id];
+};
 
 export const createRandomBase64Key = () => toBase64(crypto.getRandomValues(new Uint8Array(32)));
 

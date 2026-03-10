@@ -9,7 +9,7 @@ export type BrowserRequestContext = {
 	origin: string;
 };
 
-const ALLOWED_HEADERS = 'Content-Type, X-CSRF-Token, X-Session-Id';
+const ALLOWED_HEADERS = 'Content-Type, X-Submit-Token';
 const ALLOWED_METHODS = 'GET, OPTIONS, POST';
 
 export const getOriginUrl = (request: Request): Result<URL, 'INVALID_ORIGIN' | 'MISSING_ORIGIN'> => {

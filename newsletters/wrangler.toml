@@ -9,10 +9,6 @@ binding = "NewslettersD1"
 database_name = "newsletters"
 database_id = "8af56f36-ae7e-4ba6-a8e0-5aa0fe6c16fc"
 
-[[kv_namespaces]]
-binding = "NewsletterSessionsKV"
-id = "32f477f008ce4650af4f86988a1b589d"
-
 [[ratelimits]]
 name = "SESSION_RATE_LIMIT"
 namespace_id = "1001"

@@ -1,6 +1,7 @@
 import type { Env } from '../common';
 import { NEWSLETTER_SESSION_TTL_SECONDS, isTimeExpired } from '../common';
-import { generateId, sha256Hex } from './crypto';
+import { fromBase64Url, hmacSha256Base64Url, timingSafeEqualStrings, toBase64Url } from './crypto';
+import { getActiveHostnameConfigKek } from './hostname-config-secrets';
 import { Err, OK, type Result } from './results';
 
 export const enum NewsletterSessionAction {
@@ -8,91 +9,123 @@ export const enum NewsletterSessionAction {
 	Unsubscribe = 'unsubscribe',
 }
 
-export type NewsletterSessionRecord = {
+export type NewsletterSubmitTokenPayload = {
 	action: NewsletterSessionAction;
 	created_at: number;
-	csrf_token_hash: string;
 	expires_at: number;
 	hostname: string;
 	origin: string;
+	v: 1;
 };
 
-const createSessionKey = (sessionId: string) => `newsletter-session:${sessionId}`;
-const getSessionKey = (sessionId: string) => createSessionKey(sessionId);
+const decodeUtf8 = (value: Uint8Array) => new TextDecoder().decode(value);
+const encodeUtf8 = (value: string) => new TextEncoder().encode(value);
+
+const isNewsletterSubmitTokenPayload = (value: unknown): value is NewsletterSubmitTokenPayload => {
+	if (!value || typeof value !== 'object') {
+		return false;
+	}
+
+	const payload = value as Partial<NewsletterSubmitTokenPayload>;
+	return (
+		payload.v === 1 &&
+		typeof payload.action === 'string' &&
+		typeof payload.created_at === 'number' &&
+		typeof payload.expires_at === 'number' &&
+		typeof payload.hostname === 'string' &&
+		typeof payload.origin === 'string'
+	);
+};
+
+const serializeSubmitTokenPayload = (payload: NewsletterSubmitTokenPayload): string => JSON.stringify(payload);
+
+const signSubmitToken = async (env: Pick<Env, 'HOSTNAME_CONFIG_KEKS_JSON'>, encodedPayload: string): Promise<string> => {
+	return hmacSha256Base64Url(getActiveHostnameConfigKek(env), encodedPayload);
+};
+
+const createSubmitToken = async (env: Pick<Env, 'HOSTNAME_CONFIG_KEKS_JSON'>, payload: NewsletterSubmitTokenPayload): Promise<string> => {
+	const encodedPayload = toBase64Url(encodeUtf8(serializeSubmitTokenPayload(payload)));
+	const signature = await signSubmitToken(env, encodedPayload);
+	return `${encodedPayload}.${signature}`;
+};
+
+const parseSubmitToken = (
+	token: string,
+): Result<{ encodedPayload: string; payload: NewsletterSubmitTokenPayload; signature: string }, 'INVALID_SESSION'> => {
+	const [encodedPayload, signature] = token.split('.');
+	if (!encodedPayload || !signature) {
+		return Err('INVALID_SESSION');
+	}
+
+	try {
+		const payload = JSON.parse(decodeUtf8(fromBase64Url(encodedPayload))) as unknown;
+		if (!isNewsletterSubmitTokenPayload(payload)) {
+			return Err('INVALID_SESSION');
+		}
+
+		return OK({ encodedPayload, payload, signature });
+	} catch {
+		return Err('INVALID_SESSION');
+	}
+};
+
+const isMatchingSubmitTokenPayload = (
+	payload: NewsletterSubmitTokenPayload,
+	options: Pick<NewsletterSubmitTokenPayload, 'action' | 'hostname' | 'origin'>,
+): boolean => {
+	return payload.action === options.action && payload.hostname === options.hostname && payload.origin === options.origin;
+};
 
 export const createNewsletterSession = async (
-	env: Env,
+	env: Pick<Env, 'HOSTNAME_CONFIG_KEKS_JSON'>,
 	options: {
 		action: NewsletterSessionAction;
 		hostname: string;
 		origin: string;
 	},
-): Promise<{ csrfToken: string; expiresAt: number; sessionId: string }> => {
-	const csrfToken = generateId(63);
+): Promise<{ expiresAt: number; submitToken: string }> => {
 	const createdAt = Date.now();
 	const expiresAt = createdAt + NEWSLETTER_SESSION_TTL_SECONDS * 1000;
-	const sessionId = generateId(32);
-	const record: NewsletterSessionRecord = {
-		action: options.action,
-		created_at: createdAt,
-		csrf_token_hash: await sha256Hex(csrfToken),
-		expires_at: expiresAt,
-		hostname: options.hostname,
-		origin: options.origin,
+
+	return {
+		expiresAt,
+		submitToken: await createSubmitToken(env, {
+			action: options.action,
+			created_at: createdAt,
+			expires_at: expiresAt,
+			hostname: options.hostname,
+			origin: options.origin,
+			v: 1,
+		}),
 	};
-
-	await env.NewsletterSessionsKV.put(createSessionKey(sessionId), JSON.stringify(record), {
-		expirationTtl: NEWSLETTER_SESSION_TTL_SECONDS,
-	});
-
-	return { csrfToken, expiresAt, sessionId };
 };
 
 export const validateNewsletterSession = async (
-	env: Env,
+	env: Pick<Env, 'HOSTNAME_CONFIG_KEKS_JSON'>,
 	options: {
 		action: NewsletterSessionAction;
-		csrfToken: string;
 		hostname: string;
 		origin: string;
-		sessionId: string;
+		submitToken: string;
 	},
-): Promise<Result<NewsletterSessionRecord, 'INVALID_SESSION'>> => {
-	const record = await env.NewsletterSessionsKV.get<NewsletterSessionRecord>(createSessionKey(options.sessionId), 'json');
-	if (!record || isTimeExpired(record.expires_at)) {
+): Promise<Result<NewsletterSubmitTokenPayload, 'INVALID_SESSION'>> => {
+	const parsedToken = parseSubmitToken(options.submitToken);
+	if (!parsedToken.success) {
+		return parsedToken;
+	}
+
+	const expectedSignature = await signSubmitToken(env, parsedToken.value.encodedPayload);
+	if (!timingSafeEqualStrings(parsedToken.value.signature, expectedSignature)) {
 		return Err('INVALID_SESSION');
 	}
 
-	if (record.action !== options.action || record.hostname !== options.hostname || record.origin !== options.origin) {
+	if (isTimeExpired(parsedToken.value.payload.expires_at)) {
 		return Err('INVALID_SESSION');
 	}
 
-	if (record.csrf_token_hash !== (await sha256Hex(options.csrfToken))) {
+	if (!isMatchingSubmitTokenPayload(parsedToken.value.payload, options)) {
 		return Err('INVALID_SESSION');
 	}
 
-	return OK(record);
-};
-
-export const deleteNewsletterSession = async (env: Env, sessionId: string): Promise<void> => {
-	await env.NewsletterSessionsKV.delete(getSessionKey(sessionId));
-};
-
-export const consumeNewsletterSession = async (
-	env: Env,
-	options: {
-		action: NewsletterSessionAction;
-		csrfToken: string;
-		hostname: string;
-		origin: string;
-		sessionId: string;
-	},
-): Promise<Result<NewsletterSessionRecord, 'INVALID_SESSION'>> => {
-	const record = await validateNewsletterSession(env, options);
-	if (!record.success) {
-		return record;
-	}
-
-	await deleteNewsletterSession(env, options.sessionId);
-	return record;
+	return OK(parsedToken.value.payload);
 };

@@ -32,6 +32,34 @@ export const toHex = (buffer: Uint8Array): string =>
 		.map((b) => ('00' + b.toString(16)).slice(-2))
 		.join('');
 
+export const toBase64 = (value: Uint8Array) => {
+	let binary = '';
+	for (const byte of value) {
+		binary += String.fromCharCode(byte);
+	}
+
+	return btoa(binary);
+};
+
+export const fromBase64 = (value: string) => {
+	const binary = atob(value);
+	const bytes = new Uint8Array(binary.length);
+	for (let index = 0; index < binary.length; index += 1) {
+		bytes[index] = binary.charCodeAt(index);
+	}
+
+	return bytes;
+};
+
+export const toBase64Url = (value: Uint8Array): string => {
+	return toBase64(value).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
+};
+
+export const fromBase64Url = (value: string): Uint8Array => {
+	const paddingLength = (4 - (value.length % 4)) % 4;
+	return fromBase64(value.replaceAll('-', '+').replaceAll('_', '/') + '='.repeat(paddingLength));
+};
+
 export const fromHex = (hex: string): Uint8Array => {
 	const bytes = new Uint8Array(hex.length / 2);
 	for (let i = 0; i < hex.length; i += 2) {
@@ -44,6 +72,12 @@ export const sha256Hex = async (value: string): Promise<string> => {
 	const encoded = new TextEncoder().encode(value);
 	const digest = await crypto.subtle.digest('SHA-256', encoded);
 	return toHex(new Uint8Array(digest));
+};
+
+export const hmacSha256Base64Url = async (keyBase64: string, value: string): Promise<string> => {
+	const key = await crypto.subtle.importKey('raw', fromBase64(keyBase64), { hash: 'SHA-256', name: 'HMAC' }, false, ['sign']);
+	const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(value));
+	return toBase64Url(new Uint8Array(signature));
 };
 
 /**
@@ -72,6 +106,16 @@ const timingSafeEqual = (left: Uint8Array, right: Uint8Array): boolean => {
 	}
 
 	return result === 0;
+};
+
+export const timingSafeEqualStrings = (left: string, right: string): boolean => {
+	const encodedLeft = new TextEncoder().encode(left);
+	const encodedRight = new TextEncoder().encode(right);
+	if (encodedLeft.byteLength !== encodedRight.byteLength) {
+		return false;
+	}
+
+	return timingSafeEqual(encodedLeft, encodedRight);
 };
 
 export class PBKDF2 {

@@ -117,9 +117,8 @@ Response:
 {
 	"success": true,
 	"value": {
-		"csrfToken": "...",
 		"expiresAt": 1773144484931,
-		"sessionId": "...",
+		"submitToken": "...",
 		"siteKey": "..."
 	}
 }
@@ -132,8 +131,7 @@ Creates or reactivates a subscription.
 Headers:
 
 - `Origin`
-- `X-CSRF-Token`
-- `X-Session-Id`
+- `X-Submit-Token`
 - `Content-Type: application/json`
 
 Body:
