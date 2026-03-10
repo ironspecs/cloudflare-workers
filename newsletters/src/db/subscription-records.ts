@@ -51,13 +51,21 @@ export const listSubscriptionRecordsByHostname = async (
 	db: D1Database,
 	options: {
 		hostname: string;
+		limit: number;
 		list_name?: string;
+		offset: number;
 	},
 ): Promise<SubscriptionRecord[]> => {
 	const whereClause = options.list_name
 		? and(eq(subscription.hostname, options.hostname), eq(subscription.list_name, options.list_name))
 		: eq(subscription.hostname, options.hostname);
-	const records = await getDb(db).select().from(subscription).where(whereClause).orderBy(asc(subscription.created_at));
+	const records = await getDb(db)
+		.select()
+		.from(subscription)
+		.where(whereClause)
+		.orderBy(asc(subscription.created_at))
+		.limit(options.limit)
+		.offset(options.offset);
 	return records.map(toSubscriptionRecord);
 };
 

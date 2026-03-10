@@ -32,7 +32,7 @@
 			}
 
 			main {
-				width: min(960px, calc(100vw - 32px));
+				width: min(1100px, calc(100vw - 32px));
 				margin: 0 auto;
 				padding: 48px 0 64px;
 			}
@@ -40,7 +40,7 @@
 			.hero {
 				display: grid;
 				gap: 24px;
-				grid-template-columns: 1.2fr 0.8fr;
+				grid-template-columns: 1.1fr 0.9fr;
 				align-items: stretch;
 			}
 
@@ -71,6 +71,13 @@
 				letter-spacing: -0.06em;
 			}
 
+			h2 {
+				margin: 0 0 10px;
+				font-size: 1rem;
+				letter-spacing: 0.06em;
+				text-transform: uppercase;
+			}
+
 			p {
 				margin: 0;
 				color: var(--muted);
@@ -85,7 +92,8 @@
 				margin-top: 28px;
 			}
 
-			button {
+			button,
+			.action-button {
 				appearance: none;
 				border: 0;
 				border-radius: 999px;
@@ -99,7 +107,8 @@
 					background 180ms ease;
 			}
 
-			button:hover {
+			button:hover,
+			.action-button:hover {
 				transform: translateY(-1px);
 			}
 
@@ -118,14 +127,6 @@
 			.details {
 				display: grid;
 				gap: 16px;
-			}
-
-			.details h2,
-			.result-panel h2 {
-				margin: 0 0 10px;
-				font-size: 1rem;
-				letter-spacing: 0.06em;
-				text-transform: uppercase;
 			}
 
 			dl {
@@ -162,7 +163,8 @@
 				margin-top: 24px;
 			}
 
-			.result-panel pre {
+			.result-panel pre,
+			.code-panel pre {
 				margin: 0;
 				padding: 18px;
 				border-radius: 18px;
@@ -182,6 +184,41 @@
 				border-radius: 18px;
 				background: rgba(17, 94, 89, 0.08);
 				border: 1px solid rgba(17, 94, 89, 0.1);
+			}
+
+			.sdk-form,
+			.template-preview {
+				display: grid;
+				gap: 12px;
+			}
+
+			.sdk-form input,
+			.template-preview input {
+				width: 100%;
+				padding: 12px 14px;
+				border-radius: 14px;
+				border: 1px solid var(--line);
+				background: white;
+				font: inherit;
+			}
+
+			.sdk-form label,
+			.template-preview label {
+				display: grid;
+				gap: 8px;
+				font-weight: 700;
+			}
+
+			.inline-actions {
+				display: flex;
+				flex-wrap: wrap;
+				gap: 10px;
+			}
+
+			.error-copy {
+				margin: 0;
+				color: #b91c1c;
+				min-height: 1.2rem;
 			}
 
 			code {
@@ -211,18 +248,18 @@
 			<section class="hero">
 				<div class="card">
 					<span class="kicker">Local Example</span>
-					<h1>Open the real newsletter signup dialog.</h1>
+					<h1>One worker, two UI options.</h1>
 					<p>
-						This page is the working example for the public <code>window.Newsletters.open(...)</code> API. When served from
-						<code>localhost</code> or <code>127.0.0.1</code>, it uses the Turnstile test key path and the submission is intentionally sunk
-						instead of stored.
+						This page demonstrates the two supported browser integration paths: a built-in dialog layer with optional page-owned templates,
+						and a low-level browser SDK for teams that want to own the UI themselves.
 					</p>
 					<div class="actions">
-						<button id="newsletter-open-button" class="primary-button" type="button">Open Signup Dialog</button>
-						<button id="newsletter-open-prefilled-button" class="secondary-button" type="button">Open With Prefill</button>
+						<button id="newsletter-open-button" class="primary-button" type="button">Open Default Dialog</button>
+						<button id="newsletter-open-template-button" class="secondary-button" type="button">Open Custom Template</button>
 					</div>
 					<div class="note">
-						Use this page for local smoke testing. On a real approved hostname, the same API path writes live subscriptions.
+						When served from <code>localhost</code> or <code>127.0.0.1</code>, the worker still validates the full flow but returns
+						<code>SINK_ACCEPTED</code> instead of storing the address.
 					</div>
 				</div>
 				<aside class="card details">
@@ -242,8 +279,8 @@
 								<dd><code>weekly</code></dd>
 							</div>
 							<div class="detail-row">
-								<dt>Expected Local Result</dt>
-								<dd><code>SINK_ACCEPTED</code></dd>
+								<dt>Supported Modes</dt>
+								<dd><code>open()</code>, <code>open({ template })</code>, and SDK calls</dd>
 							</div>
 						</dl>
 					</div>
@@ -251,30 +288,103 @@
 			</section>
 
 			<section class="grid">
-				<div class="card result-panel">
-					<h2>Copy/Paste Snippet</h2>
+				<div class="card code-panel">
+					<h2>Option A: Browser SDK</h2>
 					<pre><code>&lt;script src="/newsletters.js" defer&gt;&lt;/script&gt;
-&lt;button id="newsletter-signup"&gt;Subscribe&lt;/button&gt;
+&lt;div id="turnstile"&gt;&lt;/div&gt;
 &lt;script&gt;
-document.getElementById('newsletter-signup').addEventListener('click', () =&gt; {
-	window.Newsletters.open({ listName: 'weekly' });
+const session = await window.Newsletters.createSession({ listName: 'weekly' });
+const turnstile = await window.Newsletters.renderTurnstile('#turnstile', {
+  siteKey: session.siteKey,
+});
+
+const result = await window.Newsletters.subscribe({
+  email: 'person@example.com',
+  listName: 'weekly',
+  submitToken: session.submitToken,
+  turnstileToken: turnstile.getToken(),
 });
 &lt;/script&gt;</code></pre>
 				</div>
-				<div class="card result-panel">
+				<div class="card">
+					<h2>Option A: Custom Form</h2>
+					<form id="newsletter-sdk-form" class="sdk-form">
+						<label>
+							Email
+							<input id="newsletter-sdk-email" type="email" value="sdk@example.com" required />
+						</label>
+						<label>
+							Name
+							<input id="newsletter-sdk-name" type="text" value="SDK Example" />
+						</label>
+						<div id="newsletter-sdk-turnstile"></div>
+						<p id="newsletter-sdk-error" class="error-copy"></p>
+						<div class="inline-actions">
+							<button id="newsletter-sdk-submit" class="primary-button" type="submit">Submit With SDK</button>
+						</div>
+					</form>
+				</div>
+				<div class="card code-panel">
+					<h2>Option B: Template Dialog</h2>
+					<pre><code>&lt;template id="newsletter-template"&gt;
+  &lt;form&gt;
+    &lt;input data-newsletters-email type="email" /&gt;
+    &lt;input data-newsletters-person-name type="text" /&gt;
+    &lt;div data-newsletters-turnstile&gt;&lt;/div&gt;
+    &lt;p data-newsletters-error&gt;&lt;/p&gt;
+    &lt;button data-newsletters-close type="button"&gt;Cancel&lt;/button&gt;
+    &lt;button data-newsletters-submit type="submit"&gt;Join&lt;/button&gt;
+  &lt;/form&gt;
+&lt;/template&gt;
+&lt;script&gt;
+window.Newsletters.open({ template: '#newsletter-template', listName: 'weekly' });
+&lt;/script&gt;</code></pre>
+				</div>
+				<div class="card">
 					<h2>Latest Result</h2>
 					<pre id="newsletter-result">No action yet.</pre>
 				</div>
 			</section>
 		</main>
 
+		<template id="newsletter-template">
+			<form class="template-preview" method="dialog">
+				<label>
+					Email
+					<input data-newsletters-email type="email" value="template@example.com" required />
+				</label>
+				<label>
+					Name
+					<input data-newsletters-person-name type="text" value="Template Example" />
+				</label>
+				<div data-newsletters-turnstile></div>
+				<p data-newsletters-error class="error-copy"></p>
+				<div class="inline-actions">
+					<button data-newsletters-close class="secondary-button" type="button">Cancel</button>
+					<button data-newsletters-submit class="primary-button" type="submit">Join Weekly</button>
+				</div>
+			</form>
+		</template>
+
 		<script>
 			const resultElement = document.getElementById('newsletter-result');
+			const sdkEmailInput = document.getElementById('newsletter-sdk-email');
+			const sdkNameInput = document.getElementById('newsletter-sdk-name');
+			const sdkErrorElement = document.getElementById('newsletter-sdk-error');
+			const sdkForm = document.getElementById('newsletter-sdk-form');
+			const sdkTurnstileContainer = document.getElementById('newsletter-sdk-turnstile');
+			let sdkSession = null;
+			let sdkTurnstile = null;
+
 			document.getElementById('example-hostname').textContent = window.location.hostname;
 			document.getElementById('example-origin').textContent = window.location.origin;
 
 			const showResult = (value) => {
 				resultElement.textContent = JSON.stringify(value, null, 2);
+			};
+
+			const showSdkError = (value) => {
+				sdkErrorElement.textContent = value;
 			};
 
 			const openNewsletter = async (options) => {
@@ -284,8 +394,7 @@ document.getElementById('newsletter-signup').addEventListener('click', () =&gt; 
 				}
 
 				try {
-					const result = await window.Newsletters.open(options);
-					showResult(result);
+					showResult(await window.Newsletters.open(options));
 				} catch (error) {
 					showResult({
 						error: error instanceof Error ? error.message : String(error),
@@ -294,15 +403,77 @@ document.getElementById('newsletter-signup').addEventListener('click', () =&gt; 
 				}
 			};
 
+			const ensureSdkSession = async () => {
+				if (!window.Newsletters || typeof window.Newsletters.createSession !== 'function') {
+					throw new Error('NEWSLETTERS_SCRIPT_NOT_READY');
+				}
+
+				if (sdkSession && sdkSession.expiresAt > Date.now() + 5000) {
+					return sdkSession;
+				}
+
+				if (sdkTurnstile) {
+					sdkTurnstile.remove();
+					sdkTurnstile = null;
+				}
+
+				sdkSession = await window.Newsletters.createSession({
+					action: 'subscribe',
+					listName: 'weekly',
+				});
+				sdkTurnstile = await window.Newsletters.renderTurnstile(sdkTurnstileContainer, {
+					siteKey: sdkSession.siteKey,
+				});
+				return sdkSession;
+			};
+
 			document.getElementById('newsletter-open-button').addEventListener('click', () => {
-				openNewsletter({ listName: 'weekly' });
+				openNewsletter({ listName: 'weekly', personName: 'Default Example' });
 			});
 
-			document.getElementById('newsletter-open-prefilled-button').addEventListener('click', () => {
+			document.getElementById('newsletter-open-template-button').addEventListener('click', () => {
 				openNewsletter({
 					listName: 'weekly',
-					personName: 'Local Example',
+					personName: 'Template Example',
+					template: '#newsletter-template',
 				});
+			});
+
+			sdkForm.addEventListener('submit', async (event) => {
+				event.preventDefault();
+				showSdkError('');
+
+				try {
+					const session = await ensureSdkSession();
+					const turnstileToken = sdkTurnstile.getToken();
+					if (!turnstileToken) {
+						showSdkError('TURNSTILE_NOT_READY');
+						return;
+					}
+
+					const payload = await window.Newsletters.subscribe({
+						email: sdkEmailInput.value,
+						listName: 'weekly',
+						personName: sdkNameInput.value,
+						submitToken: session.submitToken,
+						turnstileToken,
+					});
+
+					if (!payload.success) {
+						showSdkError(payload.error);
+						sdkTurnstile.reset();
+						showResult(payload);
+						return;
+					}
+
+					showResult(payload);
+				} catch (error) {
+					showSdkError(error instanceof Error ? error.message : String(error));
+					showResult({
+						error: error instanceof Error ? error.message : String(error),
+						success: false,
+					});
+				}
 			});
 		</script>
 	</body>

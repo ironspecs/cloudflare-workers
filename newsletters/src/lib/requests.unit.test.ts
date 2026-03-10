@@ -66,6 +66,22 @@ describe('parseRequest', () => {
 		});
 	});
 
+	it('returns UNSUPPORTED_CONTENT_TYPE for unsupported request bodies', async () => {
+		const result = await parseRequest(
+			new Request('https://service.example/subscribe?list_name=weekly', {
+				body: 'email=person@example.com',
+				headers: { 'Content-Type': 'text/plain' },
+				method: 'POST',
+			}),
+			schema,
+		);
+
+		expect(result).toEqual({
+			success: false,
+			error: 'UNSUPPORTED_CONTENT_TYPE',
+		});
+	});
+
 	it('returns validation issues when the schema does not match', async () => {
 		const result = await parseRequest(
 			new Request('https://service.example/subscribe', {

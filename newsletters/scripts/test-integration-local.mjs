@@ -268,14 +268,20 @@ const main = async () => {
 			const homepage = await fetch(`${baseUrl}/`);
 			assert.equal(homepage.status, 200);
 			const homepageHtml = await homepage.text();
-			assert.match(homepageHtml, /Open the real newsletter signup dialog/i);
+			assert.match(homepageHtml, /One worker, two UI options/i);
 			assert.match(homepageHtml, /newsletter-open-button/);
-			assert.match(homepageHtml, /window\.Newsletters\.open/);
+			assert.match(homepageHtml, /newsletter-open-template-button/);
+			assert.match(homepageHtml, /newsletter-sdk-form/);
+			assert.match(homepageHtml, /window\.Newsletters\.createSession/);
 
 			const newslettersScriptResponse = await fetch(`${baseUrl}/newsletters.js`);
 			assert.equal(newslettersScriptResponse.status, 200);
 			assert.match(newslettersScriptResponse.headers.get('content-type') ?? '', /application\/javascript/);
-			assert.match(await newslettersScriptResponse.text(), /window\.Newsletters/);
+			const newslettersScript = await newslettersScriptResponse.text();
+			assert.match(newslettersScript, /window\.Newsletters/);
+			assert.match(newslettersScript, /createSession: async/);
+			assert.match(newslettersScript, /renderTurnstile: async/);
+			assert.match(newslettersScript, /subscribe: async/);
 
 			const preflightResponse = await fetch(`${baseUrl}/subscribe`, {
 				method: 'OPTIONS',
@@ -317,7 +323,12 @@ const main = async () => {
 			assert.equal(subscribersResponse.status, 200);
 			assert.deepEqual(await subscribersResponse.json(), {
 				success: true,
-				value: [],
+				value: {
+					has_more: false,
+					items: [],
+					limit: 100,
+					offset: 0,
+				},
 			});
 
 			const missingAuthorizationResponse = await fetch(`${baseUrl}/api/subscribers?hostname=${encodeURIComponent(testHostname)}`, {
@@ -350,6 +361,26 @@ const main = async () => {
 			});
 			await assertSubscriptionCount(stateDir, 1);
 
+			const alreadySubscribedResponse = await fetch(`${baseUrl}/subscribe`, {
+				method: 'POST',
+				headers: {
+					'content-type': 'application/json',
+					origin: `https://${testHostname}`,
+					'x-submit-token': sessionPayload.value.submitToken,
+				},
+				body: JSON.stringify({
+					email: 'person@softwarepatterns.com',
+					hostname: testHostname,
+					list_name: 'weekly',
+					turnstile_token: turnstileTestToken,
+				}),
+			});
+			assert.equal(alreadySubscribedResponse.status, 200);
+			assert.deepEqual(await alreadySubscribedResponse.json(), {
+				success: true,
+				value: 'ALREADY_SUBSCRIBED',
+			});
+
 			const listedSubscribersResponse = await fetch(`${baseUrl}/api/subscribers?hostname=${encodeURIComponent(testHostname)}`, {
 				method: 'GET',
 				headers: {
@@ -359,12 +390,12 @@ const main = async () => {
 			assert.equal(listedSubscribersResponse.status, 200);
 			const listedSubscribersPayload = await listedSubscribersResponse.json();
 			assert.equal(listedSubscribersPayload.success, true);
-			assert.equal(listedSubscribersPayload.value.length, 1);
-			assert.equal(listedSubscribersPayload.value[0].email, 'person@softwarepatterns.com');
-			assert.equal(listedSubscribersPayload.value[0].hostname, testHostname);
+			assert.equal(listedSubscribersPayload.value.items.length, 1);
+			assert.equal(listedSubscribersPayload.value.items[0].email, 'person@softwarepatterns.com');
+			assert.equal(listedSubscribersPayload.value.items[0].hostname, testHostname);
 
 			const deleteSubscriberResponse = await fetch(
-				`${baseUrl}/api/subscribers/${listedSubscribersPayload.value[0].id}?hostname=${encodeURIComponent(testHostname)}`,
+				`${baseUrl}/api/subscribers/${listedSubscribersPayload.value.items[0].id}?hostname=${encodeURIComponent(testHostname)}`,
 				{
 					method: 'DELETE',
 					headers: {
@@ -378,6 +409,21 @@ const main = async () => {
 				value: 'DELETED',
 			});
 			await assertSubscriptionCount(stateDir, 0);
+
+			const missingDeleteResponse = await fetch(
+				`${baseUrl}/api/subscribers/${listedSubscribersPayload.value.items[0].id}?hostname=${encodeURIComponent(testHostname)}`,
+				{
+					method: 'DELETE',
+					headers: {
+						authorization: `Bearer ${apiToken}`,
+					},
+				},
+			);
+			assert.equal(missingDeleteResponse.status, 404);
+			assert.deepEqual(await missingDeleteResponse.json(), {
+				error: 'NOT_FOUND',
+				success: false,
+			});
 
 			const localSessionResponse = await fetch(`${baseUrl}/newsletters/session`, {
 				method: 'POST',

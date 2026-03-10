@@ -5,6 +5,7 @@ export interface Env {
 	JwksCacheKV: KVNamespace;
 	SESSION_RATE_LIMIT: RateLimit;
 	SUBMIT_RATE_LIMIT: RateLimit;
+	API_RATE_LIMIT: RateLimit;
 	VERIFY_RATE_LIMIT: RateLimit;
 	HOSTNAME_CONFIG_KEKS_JSON: string;
 	ENVIRONMENT?: string;

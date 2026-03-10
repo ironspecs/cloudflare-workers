@@ -7,7 +7,10 @@ export const hostname_config = sqliteTable('hostname_config', {
 });
 
 export const hostname_config_secrets = sqliteTable('hostname_config_secrets', {
-	hostname: text('hostname').notNull().primaryKey(),
+	hostname: text('hostname')
+		.notNull()
+		.primaryKey()
+		.references(() => hostname_config.hostname, { onDelete: 'cascade' }),
 	dek_kek_id: text('dek_kek_id').notNull(),
 	dek_wrapped: text('dek_wrapped').notNull(),
 	turnstile_secret_key_ciphertext: text('turnstile_secret_key_ciphertext').notNull(),
@@ -17,7 +20,9 @@ export const list_config = sqliteTable(
 	'list_config',
 	{
 		id: text('id').notNull().primaryKey(),
-		hostname: text('hostname').notNull(),
+		hostname: text('hostname')
+			.notNull()
+			.references(() => hostname_config.hostname),
 		list_name: text('list_name').notNull(),
 		email_confirm: text('email_confirm'),
 	},
@@ -29,7 +34,9 @@ export const subscription = sqliteTable(
 	{
 		id: text('id').notNull().primaryKey(),
 		email: text('email').notNull(),
-		hostname: text('hostname').notNull(),
+		hostname: text('hostname')
+			.notNull()
+			.references(() => hostname_config.hostname),
 		list_name: text('list_name').notNull(),
 		created_at: integer('created_at', { mode: 'number' }).notNull(),
 		person_name: text('person_name'),
@@ -43,7 +50,9 @@ export const subscription_token = sqliteTable(
 	'subscription_token',
 	{
 		id: text('id').notNull().primaryKey(),
-		subscription_id: text('subscription_id').notNull(),
+		subscription_id: text('subscription_id')
+			.notNull()
+			.references(() => subscription.id),
 		token_type: text('token_type').notNull(),
 		expires_at: integer('expires_at', { mode: 'number' }).notNull(),
 	},

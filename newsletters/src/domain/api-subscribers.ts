@@ -1,31 +1,28 @@
 import type { Env } from '../common';
-import { getHostnameConfigByHostname } from '../db/hostname-config-records';
 import {
 	deleteSubscriptionRecordById,
 	getSubscriptionRecordById,
 	listSubscriptionRecordsByHostname,
 	type SubscriptionRecord,
 } from '../db/subscription-records';
-import { Err, OK, type Result } from '../lib/results';
+
+export type DeleteApiSubscriberOutcome = { code: 'DELETED' } | { code: 'NOT_FOUND' };
 
 export const listApiSubscribers = async (
 	env: Env,
 	options: {
 		hostname: string;
+		limit: number;
 		list_name?: string;
+		offset: number;
 	},
-): Promise<Result<SubscriptionRecord[], 'UNKNOWN_HOSTNAME'>> => {
-	const hostnameConfig = await getHostnameConfigByHostname(env.NewslettersD1, options.hostname);
-	if (hostnameConfig === null) {
-		return Err('UNKNOWN_HOSTNAME');
-	}
-
-	return OK(
-		await listSubscriptionRecordsByHostname(env.NewslettersD1, {
-			hostname: options.hostname,
-			list_name: options.list_name,
-		}),
-	);
+): Promise<SubscriptionRecord[]> => {
+	return listSubscriptionRecordsByHostname(env.NewslettersD1, {
+		hostname: options.hostname,
+		limit: options.limit,
+		list_name: options.list_name,
+		offset: options.offset,
+	});
 };
 
 export const deleteApiSubscriber = async (
@@ -34,17 +31,12 @@ export const deleteApiSubscriber = async (
 		hostname: string;
 		id: string;
 	},
-): Promise<Result<'DELETED', 'NOT_FOUND' | 'UNKNOWN_HOSTNAME'>> => {
-	const hostnameConfig = await getHostnameConfigByHostname(env.NewslettersD1, options.hostname);
-	if (hostnameConfig === null) {
-		return Err('UNKNOWN_HOSTNAME');
-	}
-
+): Promise<DeleteApiSubscriberOutcome> => {
 	const record = await getSubscriptionRecordById(env.NewslettersD1, options.id);
 	if (record === null || record.hostname !== options.hostname) {
-		return Err('NOT_FOUND');
+		return { code: 'NOT_FOUND' };
 	}
 
 	await deleteSubscriptionRecordById(env.NewslettersD1, options.id);
-	return OK('DELETED');
+	return { code: 'DELETED' };
 };

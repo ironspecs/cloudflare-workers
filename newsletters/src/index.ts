@@ -13,12 +13,14 @@ import { createEmbedScript } from './lib/embed-script';
 import { logError } from './lib/log';
 import { createNewsletterSession, NewsletterSessionAction, validateNewsletterSession } from './lib/newsletter-sessions';
 import { parseRequest } from './lib/requests';
-import { createHTMLResponse, createJSONResponse, createJavaScriptResponse, createMethodNotAllowedResponse } from './lib/responses';
+import { createHTMLResponse, createJSONResponse, createJavaScriptResponse } from './lib/responses';
 import { applyRateLimit, getRateLimitKey } from './lib/rate-limit';
 import { authorizeServiceRequest, type ServiceAuthError } from './lib/service-auth';
 import { getTurnstileSiteKey, verifyTurnstileToken } from './lib/turnstile';
 
 const app = new Hono<{ Bindings: Env }>();
+const API_SUBSCRIBERS_DEFAULT_LIMIT = 100;
+const API_SUBSCRIBERS_MAX_LIMIT = 500;
 
 const newsletterSessionSchema = object({
 	query: object({}),
@@ -45,7 +47,9 @@ const verifyQuerySchema = object({
 
 const apiSubscribersQuerySchema = object({
 	hostname: string(),
+	limit: optional(string()),
 	list_name: optional(string()),
+	offset: optional(string()),
 });
 
 const apiDeleteSubscriberQuerySchema = object({
@@ -64,11 +68,84 @@ const createOptionsResponse = (headers: HeadersInit) =>
 		status: 204,
 	});
 
+const createValueResponse = <T>(value: T, headers?: HeadersInit, status = 200) =>
+	createJSONResponse(
+		{
+			success: true,
+			value,
+		},
+		status,
+		headers,
+	);
+
 const getHeaderValue = (request: Request, headerName: string) => request.headers.get(headerName) ?? '';
 
 const applyBrowserRateLimit = async (binding: Env['SESSION_RATE_LIMIT'], request: Request, hostname: string, headers: Headers) => {
 	const rateLimitResult = await applyRateLimit(binding, getRateLimitKey(request, hostname));
 	return rateLimitResult.success ? null : createErrorResponse(rateLimitResult.error, 429, headers);
+};
+
+const createParseRequestErrorResponse = (error: import('./lib/requests').ParseRequestError, headers?: HeadersInit) => {
+	if (error === 'INVALID_FORMDATA' || error === 'INVALID_JSON') {
+		return createErrorResponse(error, 400, headers);
+	}
+
+	if (error === 'UNSUPPORTED_CONTENT_TYPE') {
+		return createErrorResponse(error, 415, headers);
+	}
+
+	return createErrorResponse(error, 400, headers);
+};
+
+const createSubscriptionOutcomeResponse = (
+	outcome: Awaited<ReturnType<typeof subscribe>> | Awaited<ReturnType<typeof unsubscribe>>,
+	headers: Headers,
+): Response => {
+	switch (outcome.code) {
+		case 'ALREADY_SUBSCRIBED':
+		case 'ALREADY_UNSUBSCRIBED':
+		case 'RESUBSCRIBED':
+		case 'SINK_ACCEPTED':
+		case 'SUBSCRIBED':
+		case 'UNSUBSCRIBED':
+			return createValueResponse(outcome.code, headers);
+		case 'NOT_FOUND':
+			return createErrorResponse(outcome.code, 404, headers);
+	}
+};
+
+const createApiDeleteOutcomeResponse = (outcome: Awaited<ReturnType<typeof deleteApiSubscriber>>): Response => {
+	switch (outcome.code) {
+		case 'DELETED':
+			return createValueResponse(outcome.code);
+		case 'NOT_FOUND':
+			return createErrorResponse(outcome.code, 404);
+	}
+};
+
+const parseBoundedInteger = (
+	value: string | undefined,
+	options: {
+		defaultValue: number;
+		maxValue: number;
+		minValue?: number;
+	},
+): number | null => {
+	if (value === undefined) {
+		return options.defaultValue;
+	}
+
+	if (!/^\d+$/.test(value)) {
+		return null;
+	}
+
+	const parsed = Number.parseInt(value, 10);
+	const minValue = options.minValue ?? 0;
+	if (!Number.isFinite(parsed) || parsed < minValue || parsed > options.maxValue) {
+		return null;
+	}
+
+	return parsed;
 };
 
 const parseQuery = async <T extends GenericSchema>(request: Request, schema: T): Promise<Awaited<ReturnType<typeof safeParseAsync<T>>>> => {
@@ -111,7 +188,7 @@ const authorizeApiHostnameRequest = async (request: Request, env: Env, hostname:
 		return createErrorResponse('UNKNOWN_HOSTNAME', 403);
 	}
 
-	const rateLimitResult = await applyRateLimit(env.VERIFY_RATE_LIMIT, getRateLimitKey(request, normalizedHostname));
+	const rateLimitResult = await applyRateLimit(env.API_RATE_LIMIT, getRateLimitKey(request, normalizedHostname));
 	if (!rateLimitResult.success) {
 		return createErrorResponse(rateLimitResult.error, 429);
 	}
@@ -142,7 +219,7 @@ const handleNewslettersSession = async (request: Request, env: Env): Promise<Res
 
 	const parsedRequest = await parseRequest(request, newsletterSessionSchema);
 	if (!parsedRequest.success) {
-		return createErrorResponse(parsedRequest.error, 400, browserContext.value.corsHeaders);
+		return createParseRequestErrorResponse(parsedRequest.error, browserContext.value.corsHeaders);
 	}
 
 	const rateLimitResponse = await applyBrowserRateLimit(
@@ -191,7 +268,7 @@ const handleProtectedSubscription = async (
 
 	const parsedRequest = await parseRequest(request, subscriptionSchema);
 	if (!parsedRequest.success) {
-		return createErrorResponse(parsedRequest.error, 400, browserContext.value.corsHeaders);
+		return createParseRequestErrorResponse(parsedRequest.error, browserContext.value.corsHeaders);
 	}
 
 	if (browserContext.value.hostname !== parsedRequest.value.body.hostname.toLowerCase()) {
@@ -227,7 +304,7 @@ const handleProtectedSubscription = async (
 		);
 	}
 
-	return createResultResponse(await handler(env, parsedRequest.value.body), browserContext.value.corsHeaders);
+	return createSubscriptionOutcomeResponse(await handler(env, parsedRequest.value.body), browserContext.value.corsHeaders);
 };
 
 const handleDisabledConfirmationRead = async (request: Request, env: Env): Promise<Response> => {
@@ -296,18 +373,35 @@ const handleApiSubscribersList = async (request: Request, env: Env): Promise<Res
 		return authResult;
 	}
 
-	const result = await listApiSubscribers(env, {
-		hostname: authResult.hostname,
-		list_name: parsedQuery.output.list_name,
+	const limit = parseBoundedInteger(output.limit, {
+		defaultValue: API_SUBSCRIBERS_DEFAULT_LIMIT,
+		maxValue: API_SUBSCRIBERS_MAX_LIMIT,
+		minValue: 1,
 	});
-	return createResultResponse(
-		result.success
-			? {
-					success: true,
-					value: result.value.map(serializeSubscriptionRecord),
-				}
-			: result,
-	);
+	if (limit === null) {
+		return createErrorResponse('INVALID_LIMIT', 400);
+	}
+
+	const offset = parseBoundedInteger(output.offset, {
+		defaultValue: 0,
+		maxValue: Number.MAX_SAFE_INTEGER,
+	});
+	if (offset === null) {
+		return createErrorResponse('INVALID_OFFSET', 400);
+	}
+
+	const subscribers = await listApiSubscribers(env, {
+		hostname: authResult.hostname,
+		limit,
+		list_name: parsedQuery.output.list_name,
+		offset,
+	});
+	return createValueResponse({
+		has_more: subscribers.length === limit,
+		items: subscribers.map(serializeSubscriptionRecord),
+		limit,
+		offset,
+	});
 };
 
 const handleApiSubscriberDelete = async (request: Request, env: Env, id: string): Promise<Response> => {
@@ -325,7 +419,7 @@ const handleApiSubscriberDelete = async (request: Request, env: Env, id: string)
 		return authResult;
 	}
 
-	return createResultResponse(
+	return createApiDeleteOutcomeResponse(
 		await deleteApiSubscriber(env, {
 			hostname: authResult.hostname,
 			id,
@@ -366,10 +460,6 @@ app.onError((error, c) => {
 
 export default {
 	fetch(request: Request, env: Env): Promise<Response> {
-		if (request.method === 'HEAD') {
-			return Promise.resolve(createMethodNotAllowedResponse());
-		}
-
 		return Promise.resolve(app.fetch(request, env));
 	},
 };

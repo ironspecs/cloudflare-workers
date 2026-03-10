@@ -8,7 +8,6 @@ import {
 	setSubscriptionRecordUnsubscribedAt,
 } from '../db/subscription-records';
 import { generateId } from '../lib/crypto';
-import { isUniqueConstraintError } from '../lib/d1';
 import { getEmailHostname, isAutomaticSinkEmailHostname, isAutomaticSinkSiteHostname } from '../lib/hostname-policy';
 import { logError } from '../lib/log';
 import { Err, NotImplemented, OK, Result } from '../lib/results';
@@ -24,19 +23,16 @@ export type SubscribeOptions = Subset<
 	}
 >;
 
-export const subscribe = async (
-	env: Env,
-	data: SubscribeOptions,
-): Promise<Result<'SINK_ACCEPTED' | 'SUBSCRIBED', 'RESUBSCRIBED' | 'ALREADY_SUBSCRIBED' | 'UNKNOWN_HOSTNAME'>> => {
-	// Get the hostname configuration.
-	const hostnameConfig = await getHostnameConfigByHostname(env.NewslettersD1, data.hostname);
-	if (hostnameConfig === null) {
-		return Err('UNKNOWN_HOSTNAME');
-	}
+export type SubscribeOutcome =
+	| { code: 'ALREADY_SUBSCRIBED' }
+	| { code: 'RESUBSCRIBED' }
+	| { code: 'SINK_ACCEPTED' }
+	| { code: 'SUBSCRIBED' };
 
+export const subscribe = async (env: Env, data: SubscribeOptions): Promise<SubscribeOutcome> => {
 	const emailHostname = getEmailHostname(data.email);
 	if (isAutomaticSinkSiteHostname(data.hostname) || isAutomaticSinkEmailHostname(emailHostname)) {
-		return OK('SINK_ACCEPTED');
+		return { code: 'SINK_ACCEPTED' };
 	}
 
 	try {
@@ -50,32 +46,26 @@ export const subscribe = async (
 			list_name: data.list_name,
 			route: '/subscribe',
 		});
-		if (isErrorWithMessage(e)) {
-			// If the user and hostname combination already exists, we can't subscribe them again.
-			if (isUniqueConstraintError(e)) {
-				// Get the existing record to see why.
-				const record = await getSubscriptionRecordByUniqueValues(env.NewslettersD1, data);
-				if (record === null) {
-					// ??? This should never happen if we just got a conflict.
-					throw new NotImplemented();
-				}
-
-				// If they were unsubscribed, allow them to subscribe again.
-				if (record.unsubscribed_at !== null) {
-					await setSubscriptionRecordUnsubscribedAt(env.NewslettersD1, {
-						id: record.id,
-						unsubscribed_at: null,
-					});
-					return Err('RESUBSCRIBED');
-				}
-
-				// Otherwise, they're already subscribed.
-				return Err('ALREADY_SUBSCRIBED');
-			}
+		if (!isErrorWithMessage(e)) {
+			throw e;
 		}
-		throw e;
+
+		const record = await getSubscriptionRecordByUniqueValues(env.NewslettersD1, data);
+		if (record === null) {
+			throw new NotImplemented();
+		}
+
+		if (record.unsubscribed_at !== null) {
+			await setSubscriptionRecordUnsubscribedAt(env.NewslettersD1, {
+				id: record.id,
+				unsubscribed_at: null,
+			});
+			return { code: 'RESUBSCRIBED' };
+		}
+
+		return { code: 'ALREADY_SUBSCRIBED' };
 	}
-	return OK('SUBSCRIBED');
+	return { code: 'SUBSCRIBED' };
 };
 
 export type UnsubscribeOptions = Subset<
@@ -88,29 +78,26 @@ export type UnsubscribeOptions = Subset<
 	}
 >;
 
-export const unsubscribe = async (
-	env: Env,
-	data: UnsubscribeOptions,
-): Promise<Result<'SINK_ACCEPTED' | 'UNSUBSCRIBED', 'ALREADY_UNSUBSCRIBED' | 'UNKNOWN_HOSTNAME' | 'NOT_FOUND'>> => {
-	// Get the hostname configuration.
-	const hostnameConfig = await getHostnameConfigByHostname(env.NewslettersD1, data.hostname);
-	if (hostnameConfig === null) {
-		return Err('UNKNOWN_HOSTNAME');
-	}
+export type UnsubscribeOutcome =
+	| { code: 'ALREADY_UNSUBSCRIBED' }
+	| { code: 'NOT_FOUND' }
+	| { code: 'SINK_ACCEPTED' }
+	| { code: 'UNSUBSCRIBED' };
 
+export const unsubscribe = async (env: Env, data: UnsubscribeOptions): Promise<UnsubscribeOutcome> => {
 	const emailHostname = getEmailHostname(data.email);
 	if (isAutomaticSinkSiteHostname(data.hostname) || isAutomaticSinkEmailHostname(emailHostname)) {
-		return OK('SINK_ACCEPTED');
+		return { code: 'SINK_ACCEPTED' };
 	}
 
 	const record = await getSubscriptionRecordByUniqueValues(env.NewslettersD1, data);
 	if (record === null) {
-		return Err('NOT_FOUND');
+		return { code: 'NOT_FOUND' };
 	}
 
 	// If they're already unsubscribed, we don't need to do anything.
 	if (record.unsubscribed_at !== null) {
-		return Err('ALREADY_UNSUBSCRIBED');
+		return { code: 'ALREADY_UNSUBSCRIBED' };
 	}
 
 	await setSubscriptionRecordUnsubscribedAt(env.NewslettersD1, {
@@ -118,7 +105,7 @@ export const unsubscribe = async (
 		unsubscribed_at: new Date(),
 	});
 
-	return OK('UNSUBSCRIBED');
+	return { code: 'UNSUBSCRIBED' };
 };
 
 export const confirmEmail = async (

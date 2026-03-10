@@ -1,6 +1,6 @@
 # Newsletters
 
-`newsletters` is a Cloudflare Worker for collecting newsletter signups from approved hostnames. It serves an embeddable browser script, opens a Turnstile-protected signup dialog, validates the request against a known hostname, and stores subscriptions in D1.
+`newsletters` is a Cloudflare Worker for collecting newsletter signups from approved hostnames. It serves an embeddable browser script, supports either a built-in dialog or page-owned templates, validates the request against a known hostname, and stores subscriptions in D1.
 
 The route layer uses `Hono`, but the security and business logic stay in small local modules under `src/lib` and `src/domain`.
 
@@ -11,7 +11,8 @@ This service exists so multiple websites can share one newsletter signup backend
 - hostname allowlisting
 - signed short-lived submit tokens for browser embeds
 - bot protection with Turnstile
-- short-lived submit-token bootstrapping
+- a small browser SDK for custom UIs
+- an optional template binder for page-owned dialogs
 - rate limiting
 - encrypted per-hostname secret storage
 
@@ -69,7 +70,9 @@ npm run deploy:live
 <script src="https://newsletters.softwarepatterns.workers.dev/newsletters.js" defer></script>
 ```
 
-### 5. Open the dialog from your page
+### 5. Pick a browser integration mode
+
+#### Option A: Use the built-in dialog
 
 ```html
 <button id="newsletter-signup">Subscribe</button>
@@ -83,7 +86,86 @@ npm run deploy:live
 </script>
 ```
 
-The dialog script calls `/newsletters/session`, renders Turnstile explicitly, and then submits to `/subscribe`.
+#### Option B: Use a page-owned template
+
+```html
+<button id="newsletter-signup-template">Subscribe</button>
+
+<template id="newsletter-template">
+	<form>
+		<input data-newsletters-email type="email" required />
+		<input data-newsletters-person-name type="text" />
+		<div data-newsletters-turnstile></div>
+		<p data-newsletters-error></p>
+		<button data-newsletters-close type="button">Cancel</button>
+		<button data-newsletters-submit type="submit">Join</button>
+	</form>
+</template>
+
+<script>
+	document.getElementById('newsletter-signup-template').addEventListener('click', () => {
+		window.Newsletters.open({
+			listName: 'weekly',
+			template: '#newsletter-template',
+		});
+	});
+</script>
+```
+
+#### Option C: Build the UI yourself with the browser SDK
+
+```html
+<form id="newsletter-form">
+	<input id="newsletter-email" type="email" required />
+	<input id="newsletter-name" type="text" />
+	<div id="newsletter-turnstile"></div>
+	<p id="newsletter-error"></p>
+	<button type="submit">Join</button>
+</form>
+
+<script>
+	let session;
+	let turnstileControl;
+
+	async function ensureSession() {
+		if (session && session.expiresAt > Date.now() + 5000) {
+			return session;
+		}
+
+		session = await window.Newsletters.createSession({ listName: 'weekly' });
+		turnstileControl?.remove();
+		turnstileControl = await window.Newsletters.renderTurnstile('#newsletter-turnstile', {
+			siteKey: session.siteKey,
+		});
+		return session;
+	}
+
+	document.getElementById('newsletter-form').addEventListener('submit', async (event) => {
+		event.preventDefault();
+		const activeSession = await ensureSession();
+		const turnstileToken = turnstileControl.getToken();
+		if (!turnstileToken) {
+			document.getElementById('newsletter-error').textContent = 'TURNSTILE_NOT_READY';
+			return;
+		}
+
+		const result = await window.Newsletters.subscribe({
+			email: document.getElementById('newsletter-email').value,
+			listName: 'weekly',
+			personName: document.getElementById('newsletter-name').value,
+			submitToken: activeSession.submitToken,
+			turnstileToken,
+		});
+
+		if (!result.success) {
+			document.getElementById('newsletter-error').textContent = result.error;
+			turnstileControl.reset();
+		}
+	});
+</script>
+```
+
+All three flows call `/newsletters/session`, render Turnstile explicitly, and then submit to `/subscribe`.
 
 The working local example page is at [newsletters/examples/local-embed/index.html](/Users/dane/Projects/ironspecs/cloudflare-workers/newsletters/examples/local-embed/index.html).
 
@@ -95,9 +177,57 @@ Returns the embeddable browser script.
 
 Behavior:
 
+- defines `window.Newsletters.createSession(...)`
+- defines `window.Newsletters.renderTurnstile(...)`
+- defines `window.Newsletters.subscribe(...)`
 - defines `window.Newsletters.open(...)`
 - loads Turnstile with explicit rendering
-- opens a native `<dialog>`
+- supports the built-in dialog fallback and explicit page-owned templates
+
+### Browser SDK
+
+#### `window.Newsletters.createSession({ action, listName })`
+
+Bootstraps a short-lived signed submit token and returns:
+
+- `expiresAt`
+- `submitToken`
+- `siteKey`
+
+#### `window.Newsletters.renderTurnstile(container, { siteKey })`
+
+Renders Turnstile explicitly into a selector or element and returns:
+
+- `getToken()`
+- `reset()`
+- `remove()`
+
+#### `window.Newsletters.subscribe({ ... })`
+
+Submits one subscription payload with:
+
+- `email`
+- `hostname` optional, defaults to `window.location.hostname`
+- `listName`
+- `personName`
+- `submitToken`
+- `turnstileToken`
+
+#### `window.Newsletters.open({ listName, personName, template })`
+
+Opens a managed `<dialog>`.
+
+- If `template` is omitted, the built-in dialog is used.
+- If `template` is provided, it must point to a `<template>` element with the fixed hook contract below.
+
+Template hook contract:
+
+- `data-newsletters-email`
+- `data-newsletters-person-name`
+- `data-newsletters-turnstile`
+- `data-newsletters-error`
+- `data-newsletters-close`
+- `data-newsletters-submit`
 
 ### `POST /newsletters/session`
 
@@ -153,6 +283,7 @@ Body:
 
 Success responses:
 
+- `ALREADY_SUBSCRIBED`
 - `SUBSCRIBED`
 - `RESUBSCRIBED`
 
@@ -163,12 +294,27 @@ Failure responses include:
 - `INVALID_SESSION`
 - `INVALID_TURNSTILE`
 - `TURNSTILE_NOT_CONFIGURED`
-- `ALREADY_SUBSCRIBED`
 - `RATE_LIMITED`
 
 ### `POST /unsubscribe`
 
 Same protection model as `/subscribe`, but marks a record unsubscribed.
+
+Success responses:
+
+- `ALREADY_UNSUBSCRIBED`
+- `SINK_ACCEPTED`
+- `UNSUBSCRIBED`
+
+Failure responses include:
+
+- `INVALID_HOSTNAME`
+- `INVALID_SESSION`
+- `INVALID_TURNSTILE`
+- `NOT_FOUND`
+- `RATE_LIMITED`
+- `TURNSTILE_NOT_CONFIGURED`
+- `UNKNOWN_HOSTNAME`
 
 ### `POST /join` and `POST /leave`
 
@@ -187,6 +333,8 @@ Query:
 ```text
 hostname=softwarepatterns.com
 list_name=weekly
+limit=100
+offset=0
 ```
 
 Success response:
@@ -194,18 +342,23 @@ Success response:
 ```json
 {
 	"success": true,
-	"value": [
-		{
-			"id": "abc123",
-			"email": "person@example.com",
-			"hostname": "softwarepatterns.com",
-			"list_name": "weekly",
-			"person_name": "Ada Lovelace",
-			"created_at": "2026-03-10T15:00:00.000Z",
-			"email_confirmed_at": null,
-			"unsubscribed_at": null
-		}
-	]
+	"value": {
+		"items": [
+			{
+				"id": "abc123",
+				"email": "person@example.com",
+				"hostname": "softwarepatterns.com",
+				"list_name": "weekly",
+				"person_name": "Ada Lovelace",
+				"created_at": "2026-03-10T15:00:00.000Z",
+				"email_confirmed_at": null,
+				"unsubscribed_at": null
+			}
+		],
+		"limit": 100,
+		"offset": 0,
+		"has_more": false
+	}
 }
 ```
 
@@ -296,6 +449,7 @@ It also scales better than one large env JSON map for hundreds of hostnames.
 - [newsletters/src/index.ts](/Users/dane/Projects/ironspecs/cloudflare-workers/newsletters/src/index.ts): worker routes
 - [newsletters/src/domain/api-subscribers.ts](/Users/dane/Projects/ironspecs/cloudflare-workers/newsletters/src/domain/api-subscribers.ts): authenticated subscriber list and delete logic
 - [newsletters/src/lib/embed-script.ts](/Users/dane/Projects/ironspecs/cloudflare-workers/newsletters/src/lib/embed-script.ts): browser embed script
+- [newsletters/examples/local-embed/index.html](/Users/dane/Projects/ironspecs/cloudflare-workers/newsletters/examples/local-embed/index.html): example page showing built-in dialog, template dialog, and SDK usage
 - [newsletters/src/lib/service-auth.ts](/Users/dane/Projects/ironspecs/cloudflare-workers/newsletters/src/lib/service-auth.ts): trusted service JWT verification via JWKS
 - [newsletters/src/lib/turnstile.ts](/Users/dane/Projects/ironspecs/cloudflare-workers/newsletters/src/lib/turnstile.ts): Turnstile verification
 - [newsletters/src/lib/newsletter-sessions.ts](/Users/dane/Projects/ironspecs/cloudflare-workers/newsletters/src/lib/newsletter-sessions.ts): signed submit-token flow
@@ -333,7 +487,7 @@ The integration test:
 - seeds hostname and encrypted hostname-secret rows
 - starts a temporary local JWKS server
 - starts `wrangler dev`
-- exercises the real browser and `/api/subscribers` HTTP flows end-to-end
+- exercises the published example page and `/api/subscribers` HTTP flows end-to-end
 
 ## Use This As A Template
 

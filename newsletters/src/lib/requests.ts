@@ -1,8 +1,6 @@
 import type { GenericSchema, InferOutput } from 'valibot';
 import { safeParseAsync } from 'valibot';
 import { Err, OK, Result } from './results';
-import { Env } from '../common';
-import { createJSONResponse } from './responses';
 
 const getRequestQueryData = async (request: Request): Promise<Result<Record<string, string>, never>> => {
 	const url = new URL(request.url);
@@ -17,7 +15,7 @@ const getRequestQueryData = async (request: Request): Promise<Result<Record<stri
 
 const getRequestBodyData = async (
 	request: Request,
-): Promise<Result<Record<string, unknown> | null, 'INVALID_JSON' | 'INVALID_FORMDATA'>> => {
+): Promise<Result<Record<string, unknown> | null, 'INVALID_JSON' | 'INVALID_FORMDATA' | 'UNSUPPORTED_CONTENT_TYPE'>> => {
 	const contentType = request.headers.get('content-type');
 
 	if (contentType?.startsWith('application/json')) {
@@ -42,10 +40,14 @@ const getRequestBodyData = async (
 		}
 	}
 
+	if (contentType !== null) {
+		return Err('UNSUPPORTED_CONTENT_TYPE');
+	}
+
 	return OK(null);
 };
 
-export type ParseRequestError = 'INVALID_FORMDATA' | 'INVALID_JSON' | string[];
+export type ParseRequestError = 'INVALID_FORMDATA' | 'INVALID_JSON' | 'UNSUPPORTED_CONTENT_TYPE' | string[];
 
 export const parseRequest = async <T extends GenericSchema>(
 	request: Request,
@@ -71,19 +73,4 @@ export const parseRequest = async <T extends GenericSchema>(
 	}
 
 	return OK(parsedResult.output);
-};
-
-export const handle = <T extends GenericSchema, R, E>(
-	schema: T,
-	handler: (request: Request, env: Env, data: InferOutput<T>) => Promise<Result<R, E>>,
-) => {
-	return async (request: Request, env: Env): Promise<Response> => {
-		const parsedResult = await parseRequest(request, schema);
-		if (!parsedResult.success) {
-			return createJSONResponse({ ok: false, error: parsedResult.error }, 400);
-		}
-
-		const result = await handler(request, env, parsedResult.value);
-		return createJSONResponse(result, result.success ? 200 : 400);
-	};
 };

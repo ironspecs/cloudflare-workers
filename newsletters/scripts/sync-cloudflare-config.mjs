@@ -105,6 +105,32 @@ const loadEncryptedConfig = async () => {
 	};
 };
 
+const getReferencedKekIds = async () => {
+	const { stdout } = await runCommand([
+		'npx',
+		'wrangler',
+		'd1',
+		'execute',
+		d1Name,
+		'--remote',
+		'--json',
+		'--command',
+		'SELECT DISTINCT dek_kek_id FROM hostname_config_secrets ORDER BY dek_kek_id;',
+	]);
+	const rows = JSON.parse(stdout);
+	const resultSet = Array.isArray(rows) ? rows[0] : null;
+	const results = Array.isArray(resultSet?.results) ? resultSet.results : [];
+	return new Set(results.map((row) => row?.dek_kek_id).filter((value) => typeof value === 'string' && value.length > 0));
+};
+
+const assertConfigContainsReferencedKeks = (config, referencedKekIds) => {
+	for (const kekId of referencedKekIds) {
+		if (!(kekId in config.keks.keys)) {
+			throw new Error(`Missing referenced KEK in config: ${kekId}`);
+		}
+	}
+};
+
 const buildHostnameSecretsSql = async (config) => {
 	const statements = [];
 	const activeKek = config.keks.keys[config.keks.active_id];
@@ -154,6 +180,8 @@ const main = async () => {
 
 	try {
 		const config = await loadEncryptedConfig();
+		const referencedKekIds = await getReferencedKekIds();
+		assertConfigContainsReferencedKeks(config, referencedKekIds);
 		const sql = await buildHostnameSecretsSql(config);
 
 		await runCommand(['npx', 'wrangler', 'secret', 'put', 'HOSTNAME_CONFIG_KEKS_JSON', '--name', workerName], {

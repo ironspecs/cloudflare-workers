@@ -9,7 +9,6 @@ enabled = true
 
 [observability.logs]
 invocation_logs = true
-head_sampling_rate = 1
 
 [[d1_databases]]
 binding = "NewslettersD1"
@@ -31,6 +30,11 @@ namespace_id = "1002"
 simple = { limit = 5, period = 60 }
 
 [[ratelimits]]
-name = "VERIFY_RATE_LIMIT"
+name = "API_RATE_LIMIT"
 namespace_id = "1003"
+simple = { limit = 60, period = 60 }
+
+[[ratelimits]]
+name = "VERIFY_RATE_LIMIT"
+namespace_id = "1004"
 simple = { limit = 30, period = 60 }
