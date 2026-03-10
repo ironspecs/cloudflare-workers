@@ -107,4 +107,29 @@ describe('getBrowserRequestContext', () => {
 			error: 'UNKNOWN_HOSTNAME',
 		});
 	});
+
+	it('keeps requiring a real row for localhost', async () => {
+		vi.mocked(hostnameConfigs.getHostnameConfigByHostname).mockResolvedValue({
+			hostname: 'localhost',
+			turnstile_site_key: null,
+		});
+
+		const result = await getBrowserRequestContext(
+			env,
+			new Request('https://service.example/newsletters', { headers: { Origin: 'http://localhost:4173' } }),
+		);
+
+		expect(result).toEqual({
+			success: true,
+			value: {
+				corsHeaders: expect.any(Headers),
+				hostname: 'localhost',
+				hostnameConfig: {
+					hostname: 'localhost',
+					turnstile_site_key: null,
+				},
+				origin: 'http://localhost:4173',
+			},
+		});
+	});
 });

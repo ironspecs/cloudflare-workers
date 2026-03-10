@@ -9,6 +9,7 @@ import {
 } from '../db/subscription-records';
 import { generateId } from '../lib/crypto';
 import { isUniqueConstraintError } from '../lib/d1';
+import { getEmailHostname, isAutomaticSinkEmailHostname, isAutomaticSinkSiteHostname } from '../lib/hostname-policy';
 import { Err, NotImplemented, OK, Result } from '../lib/results';
 import { consumeAuthToken } from './subscription-tokens';
 
@@ -25,11 +26,16 @@ export type SubscribeOptions = Subset<
 export const subscribe = async (
 	env: Env,
 	data: SubscribeOptions,
-): Promise<Result<'SUBSCRIBED', 'RESUBSCRIBED' | 'ALREADY_SUBSCRIBED' | 'UNKNOWN_HOSTNAME'>> => {
+): Promise<Result<'SINK_ACCEPTED' | 'SUBSCRIBED', 'RESUBSCRIBED' | 'ALREADY_SUBSCRIBED' | 'UNKNOWN_HOSTNAME'>> => {
 	// Get the hostname configuration.
 	const hostnameConfig = await getHostnameConfigByHostname(env.NewslettersD1, data.hostname);
 	if (hostnameConfig === null) {
 		return Err('UNKNOWN_HOSTNAME');
+	}
+
+	const emailHostname = getEmailHostname(data.email);
+	if (isAutomaticSinkSiteHostname(data.hostname) || isAutomaticSinkEmailHostname(emailHostname)) {
+		return OK('SINK_ACCEPTED');
 	}
 
 	try {
@@ -80,11 +86,16 @@ export type UnsubscribeOptions = Subset<
 export const unsubscribe = async (
 	env: Env,
 	data: UnsubscribeOptions,
-): Promise<Result<'UNSUBSCRIBED', 'ALREADY_UNSUBSCRIBED' | 'UNKNOWN_HOSTNAME' | 'NOT_FOUND'>> => {
+): Promise<Result<'SINK_ACCEPTED' | 'UNSUBSCRIBED', 'ALREADY_UNSUBSCRIBED' | 'UNKNOWN_HOSTNAME' | 'NOT_FOUND'>> => {
 	// Get the hostname configuration.
 	const hostnameConfig = await getHostnameConfigByHostname(env.NewslettersD1, data.hostname);
 	if (hostnameConfig === null) {
 		return Err('UNKNOWN_HOSTNAME');
+	}
+
+	const emailHostname = getEmailHostname(data.email);
+	if (isAutomaticSinkSiteHostname(data.hostname) || isAutomaticSinkEmailHostname(emailHostname)) {
+		return OK('SINK_ACCEPTED');
 	}
 
 	const record = await getSubscriptionRecordByUniqueValues(env.NewslettersD1, data);

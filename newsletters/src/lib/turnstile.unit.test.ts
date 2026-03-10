@@ -3,6 +3,7 @@ import type { Env } from '../common';
 import * as hostnameConfigRecords from '../db/hostname-config-records';
 import * as hostnameConfigSecretRecords from '../db/hostname-config-secret-records';
 import * as hostnameConfigSecrets from './hostname-config-secrets';
+import { TURNSTILE_TEST_SECRET_KEY, TURNSTILE_TEST_SITE_KEY } from './hostname-policy';
 import { TURNSTILE_TEST_TOKEN, getTurnstileSiteKey, verifyTurnstileToken } from './turnstile';
 
 vi.mock('../db/hostname-config-records', () => ({
@@ -51,6 +52,12 @@ describe('getTurnstileSiteKey', () => {
 
 		await expect(getTurnstileSiteKey(env, 'unknown.example')).resolves.toBeNull();
 	});
+
+	it('returns the Cloudflare test site key for local development hostnames', async () => {
+		await expect(getTurnstileSiteKey(env, 'localhost')).resolves.toBe(TURNSTILE_TEST_SITE_KEY);
+		await expect(getTurnstileSiteKey(env, '127.0.0.1')).resolves.toBe(TURNSTILE_TEST_SITE_KEY);
+		expect(hostnameConfigRecords.getHostnameConfigByHostname).not.toHaveBeenCalled();
+	});
 });
 
 describe('verifyTurnstileToken', () => {
@@ -97,7 +104,7 @@ describe('verifyTurnstileToken', () => {
 		vi.stubGlobal(
 			'fetch',
 			vi.fn().mockResolvedValue(
-				new Response(JSON.stringify({ hostname: 'localhost', success: true }), {
+				new Response(JSON.stringify({ hostname: 'example.com', success: true }), {
 					headers: { 'Content-Type': 'application/json' },
 					status: 200,
 				}),
@@ -138,5 +145,31 @@ describe('verifyTurnstileToken', () => {
 			success: false,
 			error: 'INVALID_TURNSTILE',
 		});
+	});
+
+	it('uses the Cloudflare test secret for localhost without reading D1 secrets', async () => {
+		const fetchMock = vi.fn().mockResolvedValue(
+			new Response(JSON.stringify({ hostname: 'example.com', success: true }), {
+				headers: { 'Content-Type': 'application/json' },
+				status: 200,
+			}),
+		);
+		vi.stubGlobal('fetch', fetchMock);
+
+		const result = await verifyTurnstileToken(env, new Request('https://service.example/subscribe'), 'localhost', TURNSTILE_TEST_TOKEN);
+
+		expect(result).toEqual({
+			success: true,
+			value: 'TURNSTILE_OK',
+		});
+		expect(hostnameConfigSecretRecords.getHostnameConfigSecretsByHostname).not.toHaveBeenCalled();
+		expect(hostnameConfigSecrets.decryptHostnameConfigSecrets).not.toHaveBeenCalled();
+		expect(fetchMock).toHaveBeenCalledWith(
+			'https://challenges.cloudflare.com/turnstile/v0/siteverify',
+			expect.objectContaining({
+				body: expect.stringContaining(TURNSTILE_TEST_SECRET_KEY),
+				method: 'POST',
+			}),
+		);
 	});
 });

@@ -21,7 +21,7 @@ import {
 	createNotFoundResponse,
 } from './lib/responses';
 import { applyRateLimit, getRateLimitKey } from './lib/rate-limit';
-import { verifyTurnstileToken } from './lib/turnstile';
+import { getTurnstileSiteKey, verifyTurnstileToken } from './lib/turnstile';
 
 type RouteHandler = (request: Request, env: Env) => Promise<Response>;
 
@@ -102,7 +102,7 @@ const handleNewslettersSession = async (request: Request, env: Env): Promise<Res
 		return rateLimitResponse;
 	}
 
-	const siteKey = browserContext.value.hostnameConfig.turnstile_site_key;
+	const siteKey = await getTurnstileSiteKey(env, browserContext.value.hostname);
 	if (!siteKey) {
 		return createErrorResponse('TURNSTILE_NOT_CONFIGURED', 500, browserContext.value.corsHeaders);
 	}

@@ -11,6 +11,7 @@ const workspaceDir = resolve(__dirname, '..');
 const wranglerBin = resolve(workspaceDir, '../node_modules/wrangler/bin/wrangler.js');
 const turnstileTestToken = 'XXXX.DUMMY.TOKEN.XXXX';
 const testHostname = 'example.com';
+const localOriginHostname = '127.0.0.1';
 const testTurnstileSiteKey = '1x00000000000000000000AA';
 const testDekKekId = 'kek202603101900';
 const testKeksJson = JSON.stringify({
@@ -21,6 +22,34 @@ const testKeksJson = JSON.stringify({
 });
 const testDekWrapped = 'v1.U+JvHS9wSuC747CG.MhLYqrtoU3looBKOyyjGeAf2/7GlXB6uuQ5o66oD5k44Zux2O3e4Z2tOfXDbivXOFPSi6ds/S082vxSK';
 const testTurnstileSecretCiphertext = 'v1.DkN/GUS12go12qyj.AZJae9HJFXg5IS57zL6bngrN88JWH2uytYp+sSNwMt/BYQfknlbcY/JHCUC6YBnRgm+Z';
+
+const assertSubscriptionCount = async (stateDir, expectedCount) => {
+	const { stdout } = await runCommand(
+		[
+			wranglerBin,
+			'd1',
+			'execute',
+			'NewslettersD1',
+			'--local',
+			'--persist-to',
+			stateDir,
+			'--json',
+			'--command',
+			'SELECT COUNT(*) AS count FROM subscription;',
+		],
+		workspaceDir,
+	);
+	const [{ results }] = JSON.parse(stdout);
+	assert.equal(results[0].count, expectedCount);
+};
+
+const parseJsonResponse = async (response) => {
+	const text = await response.text();
+	return {
+		payload: text ? JSON.parse(text) : null,
+		status: response.status,
+	};
+};
 
 const getAvailablePort = () =>
 	new Promise((resolvePort, reject) => {
@@ -125,6 +154,21 @@ const main = async () => {
 				'--persist-to',
 				stateDir,
 				'--command',
+				`INSERT INTO hostname_config (hostname, turnstile_site_key) VALUES ('localhost', NULL), ('${localOriginHostname}', NULL);`,
+			],
+			workspaceDir,
+		);
+
+		await runCommand(
+			[
+				wranglerBin,
+				'd1',
+				'execute',
+				'NewslettersD1',
+				'--local',
+				'--persist-to',
+				stateDir,
+				'--command',
 				`INSERT INTO hostname_config_secrets (hostname, dek_kek_id, dek_wrapped, turnstile_secret_key_ciphertext) VALUES ('${testHostname}', '${testDekKekId}', '${testDekWrapped}', '${testTurnstileSecretCiphertext}');`,
 			],
 			workspaceDir,
@@ -186,7 +230,7 @@ const main = async () => {
 				}),
 			});
 			assert.equal(sessionResponse.status, 200);
-			const sessionPayload = await sessionResponse.json();
+			const { payload: sessionPayload } = await parseJsonResponse(sessionResponse);
 			assert.deepEqual(sessionPayload.success, true);
 			assert.equal(typeof sessionPayload.value.csrfToken, 'string');
 			assert.equal(typeof sessionPayload.value.sessionId, 'string');
@@ -201,7 +245,7 @@ const main = async () => {
 					'x-session-id': sessionPayload.value.sessionId,
 				},
 				body: JSON.stringify({
-					email: 'person@example.com',
+					email: 'person@softwarepatterns.com',
 					hostname: testHostname,
 					list_name: 'weekly',
 					turnstile_token: turnstileTestToken,
@@ -212,6 +256,46 @@ const main = async () => {
 				success: true,
 				value: 'SUBSCRIBED',
 			});
+			await assertSubscriptionCount(stateDir, 1);
+
+			const localSessionResponse = await fetch(`${baseUrl}/newsletters/session`, {
+				method: 'POST',
+				headers: {
+					'content-type': 'application/json',
+					origin: `http://${localOriginHostname}:4173`,
+				},
+				body: JSON.stringify({
+					action: 'subscribe',
+					list_name: 'weekly',
+				}),
+			});
+			assert.equal(localSessionResponse.status, 200);
+			const { payload: localSessionPayload } = await parseJsonResponse(localSessionResponse);
+			assert.deepEqual(localSessionPayload.success, true);
+			assert.equal(localSessionPayload.value.siteKey, testTurnstileSiteKey);
+
+			const localSubscribeResponse = await fetch(`${baseUrl}/subscribe`, {
+				method: 'POST',
+				headers: {
+					'content-type': 'application/json',
+					origin: `http://${localOriginHostname}:4173`,
+					'x-csrf-token': localSessionPayload.value.csrfToken,
+					'x-session-id': localSessionPayload.value.sessionId,
+				},
+				body: JSON.stringify({
+					email: 'dev@example.com',
+					hostname: localOriginHostname,
+					list_name: 'weekly',
+					turnstile_token: turnstileTestToken,
+				}),
+			});
+			const { payload: localSubscribePayload, status: localSubscribeStatus } = await parseJsonResponse(localSubscribeResponse);
+			assert.equal(localSubscribeStatus, 200, JSON.stringify(localSubscribePayload));
+			assert.deepEqual(localSubscribePayload, {
+				success: true,
+				value: 'SINK_ACCEPTED',
+			});
+			await assertSubscriptionCount(stateDir, 1);
 
 			const reusedSessionResponse = await fetch(`${baseUrl}/subscribe`, {
 				method: 'POST',
@@ -228,8 +312,9 @@ const main = async () => {
 					turnstile_token: turnstileTestToken,
 				}),
 			});
+			const { payload: reusedSessionPayload } = await parseJsonResponse(reusedSessionResponse);
 			assert.equal(reusedSessionResponse.status, 403);
-			assert.deepEqual(await reusedSessionResponse.json(), {
+			assert.deepEqual(reusedSessionPayload, {
 				success: false,
 				error: 'INVALID_SESSION',
 			});
@@ -245,15 +330,17 @@ const main = async () => {
 					list_name: 'weekly',
 				}),
 			});
+			const { payload: unknownHostnamePayload } = await parseJsonResponse(unknownHostnameResponse);
 			assert.equal(unknownHostnameResponse.status, 403);
-			assert.deepEqual(await unknownHostnameResponse.json(), {
+			assert.deepEqual(unknownHostnamePayload, {
 				success: false,
 				error: 'UNKNOWN_HOSTNAME',
 			});
 
 			const verifyResponse = await fetch(`${baseUrl}/verify?hostname=example.com`);
+			const { payload: verifyPayload } = await parseJsonResponse(verifyResponse);
 			assert.equal(verifyResponse.status, 501);
-			assert.deepEqual(await verifyResponse.json(), {
+			assert.deepEqual(verifyPayload, {
 				success: false,
 				error: 'EMAIL_CONFIRMATION_DISABLED',
 			});
