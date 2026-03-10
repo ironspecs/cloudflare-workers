@@ -186,14 +186,12 @@
 				border: 1px solid rgba(17, 94, 89, 0.1);
 			}
 
-			.sdk-form,
-			.template-preview {
+			.sdk-form {
 				display: grid;
 				gap: 12px;
 			}
 
-			.sdk-form input,
-			.template-preview input {
+			.sdk-form input {
 				width: 100%;
 				padding: 12px 14px;
 				border-radius: 14px;
@@ -202,8 +200,7 @@
 				font: inherit;
 			}
 
-			.sdk-form label,
-			.template-preview label {
+			.sdk-form label {
 				display: grid;
 				gap: 8px;
 				font-weight: 700;
@@ -250,12 +247,12 @@
 					<span class="kicker">Local Example</span>
 					<h1>One worker, two UI options.</h1>
 					<p>
-						This page demonstrates the two supported browser integration paths: a built-in dialog layer with optional page-owned templates,
-						and a low-level browser SDK for teams that want to own the UI themselves.
+						This page demonstrates the two supported browser integration paths: a worker-managed dialog layer, and a low-level browser SDK
+						for teams that want to own the UI themselves.
 					</p>
 					<div class="actions">
 						<button id="newsletter-open-button" class="primary-button" type="button">Open Default Dialog</button>
-						<button id="newsletter-open-template-button" class="secondary-button" type="button">Open Custom Template</button>
+						<a class="action-button secondary-button" href="#template-mode">See Template Mode</a>
 					</div>
 					<div class="note">
 						When served from <code>localhost</code> or <code>127.0.0.1</code>, the worker still validates the full flow but returns
@@ -280,7 +277,7 @@
 							</div>
 							<div class="detail-row">
 								<dt>Supported Modes</dt>
-								<dd><code>open()</code>, <code>open({ template })</code>, and SDK calls</dd>
+								<dd><code>open()</code> and SDK calls</dd>
 							</div>
 						</dl>
 					</div>
@@ -325,20 +322,20 @@ const result = await window.Newsletters.subscribe({
 					</form>
 				</div>
 				<div class="card code-panel">
-					<h2>Option B: Template Dialog</h2>
-					<pre><code>&lt;template id="newsletter-template"&gt;
-  &lt;form&gt;
-    &lt;input data-newsletters-email type="email" /&gt;
-    &lt;input data-newsletters-person-name type="text" /&gt;
-    &lt;div data-newsletters-turnstile&gt;&lt;/div&gt;
-    &lt;p data-newsletters-error&gt;&lt;/p&gt;
-    &lt;button data-newsletters-close type="button"&gt;Cancel&lt;/button&gt;
-    &lt;button data-newsletters-submit type="submit"&gt;Join&lt;/button&gt;
-  &lt;/form&gt;
-&lt;/template&gt;
+					<h2 id="template-mode">Option B: Script-Selected Template</h2>
+					<pre><code>&lt;script
+  src="/newsletters.js?template=starter"
+  defer
+&gt;&lt;/script&gt;
 &lt;script&gt;
-window.Newsletters.open({ template: '#newsletter-template', listName: 'weekly' });
+document.getElementById('newsletter-signup').addEventListener('click', () =&gt; {
+  window.Newsletters.open({ listName: 'weekly' });
+});
 &lt;/script&gt;</code></pre>
+					<p class="note">
+						The high-level template is selected once in the script URL. The worker preloads only that template, and
+						<code>open()</code> uses it automatically.
+					</p>
 				</div>
 				<div class="card">
 					<h2>Latest Result</h2>
@@ -346,25 +343,6 @@ window.Newsletters.open({ template: '#newsletter-template', listName: 'weekly' }
 				</div>
 			</section>
 		</main>
-
-		<template id="newsletter-template">
-			<form class="template-preview" method="dialog">
-				<label>
-					Email
-					<input data-newsletters-email type="email" value="template@example.com" required />
-				</label>
-				<label>
-					Name
-					<input data-newsletters-person-name type="text" value="Template Example" />
-				</label>
-				<div data-newsletters-turnstile></div>
-				<p data-newsletters-error class="error-copy"></p>
-				<div class="inline-actions">
-					<button data-newsletters-close class="secondary-button" type="button">Cancel</button>
-					<button data-newsletters-submit class="primary-button" type="submit">Join Weekly</button>
-				</div>
-			</form>
-		</template>
 
 		<script>
 			const resultElement = document.getElementById('newsletter-result');
@@ -429,14 +407,6 @@ window.Newsletters.open({ template: '#newsletter-template', listName: 'weekly' }
 
 			document.getElementById('newsletter-open-button').addEventListener('click', () => {
 				openNewsletter({ listName: 'weekly', personName: 'Default Example' });
-			});
-
-			document.getElementById('newsletter-open-template-button').addEventListener('click', () => {
-				openNewsletter({
-					listName: 'weekly',
-					personName: 'Template Example',
-					template: '#newsletter-template',
-				});
 			});
 
 			sdkForm.addEventListener('submit', async (event) => {

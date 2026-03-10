@@ -1,6 +1,6 @@
 # Newsletters
 
-`newsletters` is a Cloudflare Worker for collecting newsletter signups from approved hostnames. It serves an embeddable browser script, supports either a built-in dialog or page-owned templates, validates the request against a known hostname, and stores subscriptions in D1.
+`newsletters` is a Cloudflare Worker for collecting newsletter signups from approved hostnames. It serves an embeddable browser script, supports either a worker-managed dialog or a low-level browser SDK, validates the request against a known hostname, and stores subscriptions in D1.
 
 The route layer uses `Hono`, but the security and business logic stay in small local modules under `src/lib` and `src/domain`.
 
@@ -12,7 +12,7 @@ This service exists so multiple websites can share one newsletter signup backend
 - signed short-lived submit tokens for browser embeds
 - bot protection with Turnstile
 - a small browser SDK for custom UIs
-- an optional template binder for page-owned dialogs
+- a server-backed template system for worker-managed dialogs
 - rate limiting
 - encrypted per-hostname secret storage
 
@@ -72,6 +72,14 @@ npm run deploy:live
 
 ### 5. Pick a browser integration mode
 
+Available templates:
+
+| Template                  | File                                                                                                                                                                         | Stack                 | Notes                                                    |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- | -------------------------------------------------------- |
+| Built-in dialog           | Worker-managed                                                                                                                                                               | none                  | Fastest path. No template query string.                  |
+| Starter dialog            | [newsletters/examples/templates/starter-dialog.html](/Users/dane/Projects/ironspecs/cloudflare-workers/newsletters/examples/templates/starter-dialog.html)                   | plain HTML + your CSS | Public server template. Select with `?template=starter`. |
+| Tailwind + DaisyUI dialog | [newsletters/examples/templates/tailwind-daisyui-dialog.html](/Users/dane/Projects/ironspecs/cloudflare-workers/newsletters/examples/templates/tailwind-daisyui-dialog.html) | Tailwind + DaisyUI    | Public server template. Select with `?template=daisyui`. |
+
 #### Option A: Use the built-in dialog
 
 ```html
@@ -86,31 +94,36 @@ npm run deploy:live
 </script>
 ```
 
-#### Option B: Use a page-owned template
+#### Option B: Use a worker-managed template
+
+Pick one server-backed template in the script URL:
+
+```html
+<script src="https://newsletters.softwarepatterns.workers.dev/newsletters.js?template=starter" defer></script>
+```
+
+Then call `open()` normally:
 
 ```html
 <button id="newsletter-signup-template">Subscribe</button>
-
-<template id="newsletter-template">
-	<form>
-		<input data-newsletters-email type="email" required />
-		<input data-newsletters-person-name type="text" />
-		<div data-newsletters-turnstile></div>
-		<p data-newsletters-error></p>
-		<button data-newsletters-close type="button">Cancel</button>
-		<button data-newsletters-submit type="submit">Join</button>
-	</form>
-</template>
-
 <script>
 	document.getElementById('newsletter-signup-template').addEventListener('click', () => {
 		window.Newsletters.open({
 			listName: 'weekly',
-			template: '#newsletter-template',
+			personName: '',
 		});
 	});
 </script>
 ```
+
+Notes:
+
+- Only the requested template is fetched.
+- Public templates can be used by any known hostname.
+- Owned templates can only be used by their owning hostname.
+- The Tailwind + DaisyUI template assumes your site already ships Tailwind utilities and DaisyUI component classes.
+- The DaisyUI template uses theme tokens such as `bg-base-100`, `text-base-content`, `border-base-300`, and `btn-primary`, so it follows light and dark themes without hardcoded colors.
+- If your Tailwind build purges unused classes, safelist the classes from the template file or import the file into the build.
 
 #### Option C: Build the UI yourself with the browser SDK
 
@@ -182,7 +195,7 @@ Behavior:
 - defines `window.Newsletters.subscribe(...)`
 - defines `window.Newsletters.open(...)`
 - loads Turnstile with explicit rendering
-- supports the built-in dialog fallback and explicit page-owned templates
+- preloads exactly one requested template when the script URL includes `?template=<name>`
 
 ### Browser SDK
 
@@ -213,21 +226,23 @@ Submits one subscription payload with:
 - `submitToken`
 - `turnstileToken`
 
-#### `window.Newsletters.open({ listName, personName, template })`
+#### `window.Newsletters.open({ listName, personName })`
 
 Opens a managed `<dialog>`.
 
-- If `template` is omitted, the built-in dialog is used.
-- If `template` is provided, it must point to a `<template>` element with the fixed hook contract below.
+- If the script URL did not include `?template=...`, the built-in dialog is used.
+- If the script URL included `?template=<name>`, `open(...)` waits for that server-backed template if needed and then uses it.
 
-Template hook contract:
+### `GET /newsletters/templates/:name`
 
-- `data-newsletters-email`
-- `data-newsletters-person-name`
-- `data-newsletters-turnstile`
-- `data-newsletters-error`
-- `data-newsletters-close`
-- `data-newsletters-submit`
+Returns one template for the browser embed flow.
+
+Rules:
+
+- requires `Origin`
+- public templates are readable by any known hostname
+- owned templates are readable only by their owning hostname
+- returns `404` when the template does not exist or is not allowed for the requesting hostname
 
 ### `POST /newsletters/session`
 
@@ -370,6 +385,82 @@ Failure responses include:
 - `INVALID_JWT`
 - `RATE_LIMITED`
 
+### `GET /api/templates`
+
+Returns owned templates for the authenticated hostname.
+
+Headers:
+
+- `Authorization: Bearer <jwt>`
+
+Query:
+
+```text
+hostname=softwarepatterns.com
+```
+
+Success response:
+
+```json
+{
+	"success": true,
+	"value": {
+		"items": [
+			{
+				"name": "softwarepatterns-signup",
+				"hostname": "softwarepatterns.com",
+				"markup": "<form>...</form>",
+				"created_at": "2026-03-11T02:00:00.000Z",
+				"updated_at": "2026-03-11T02:00:00.000Z"
+			}
+		]
+	}
+}
+```
+
+### `GET /api/templates/:name`
+
+Returns one owned template for the authenticated hostname.
+
+### `POST /api/templates`
+
+Creates one owned template for the authenticated hostname.
+
+Body:
+
+```json
+{
+	"hostname": "softwarepatterns.com",
+	"name": "softwarepatterns-signup",
+	"markup": "<form>...</form>"
+}
+```
+
+### `PATCH /api/templates/:name`
+
+Updates one owned template for the authenticated hostname.
+
+Body:
+
+```json
+{
+	"hostname": "softwarepatterns.com",
+	"markup": "<form>...</form>"
+}
+```
+
+### `DELETE /api/templates/:name`
+
+Deletes one owned template for the authenticated hostname.
+
+Rules for all `/api/templates*` routes:
+
+- hostname owners can only CRUD their owned templates
+- public templates are excluded from customer CRUD
+- invalid names return `INVALID_TEMPLATE_NAME`
+- invalid markup returns `INVALID_TEMPLATE_MARKUP`
+- duplicate names return `ALREADY_EXISTS`
+
 ### `DELETE /api/subscribers/:id`
 
 Hard-deletes one subscriber record for the authenticated hostname.
@@ -447,9 +538,11 @@ It also scales better than one large env JSON map for hundreds of hostnames.
 ### Important Files
 
 - [newsletters/src/index.ts](/Users/dane/Projects/ironspecs/cloudflare-workers/newsletters/src/index.ts): worker routes
-- [newsletters/src/domain/api-subscribers.ts](/Users/dane/Projects/ironspecs/cloudflare-workers/newsletters/src/domain/api-subscribers.ts): authenticated subscriber list and delete logic
+- [newsletters/src/domain/subscribers.ts](/Users/dane/Projects/ironspecs/cloudflare-workers/newsletters/src/domain/subscribers.ts): subscriber list and delete logic
+- [newsletters/src/domain/templates.ts](/Users/dane/Projects/ironspecs/cloudflare-workers/newsletters/src/domain/templates.ts): owned template CRUD and browser template lookup rules
+- [newsletters/src/db/newsletter-template-records.ts](/Users/dane/Projects/ironspecs/cloudflare-workers/newsletters/src/db/newsletter-template-records.ts): template persistence helpers
 - [newsletters/src/lib/embed-script.ts](/Users/dane/Projects/ironspecs/cloudflare-workers/newsletters/src/lib/embed-script.ts): browser embed script
-- [newsletters/examples/local-embed/index.html](/Users/dane/Projects/ironspecs/cloudflare-workers/newsletters/examples/local-embed/index.html): example page showing built-in dialog, template dialog, and SDK usage
+- [newsletters/examples/local-embed/index.html](/Users/dane/Projects/ironspecs/cloudflare-workers/newsletters/examples/local-embed/index.html): example page showing the built-in dialog and SDK usage
 - [newsletters/src/lib/service-auth.ts](/Users/dane/Projects/ironspecs/cloudflare-workers/newsletters/src/lib/service-auth.ts): trusted service JWT verification via JWKS
 - [newsletters/src/lib/turnstile.ts](/Users/dane/Projects/ironspecs/cloudflare-workers/newsletters/src/lib/turnstile.ts): Turnstile verification
 - [newsletters/src/lib/newsletter-sessions.ts](/Users/dane/Projects/ironspecs/cloudflare-workers/newsletters/src/lib/newsletter-sessions.ts): signed submit-token flow
@@ -485,6 +578,7 @@ The integration test:
 
 - creates a temporary local D1 database
 - seeds hostname and encrypted hostname-secret rows
+- seeds public server templates
 - starts a temporary local JWKS server
 - starts `wrangler dev`
 - exercises the published example page and `/api/subscribers` HTTP flows end-to-end

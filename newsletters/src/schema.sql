@@ -26,6 +26,21 @@ CREATE TABLE list_config (
 );
 CREATE UNIQUE INDEX list_config_hostname_list_name ON list_config (hostname, list_name);
 /*
+ Template table.
+ Public templates use NULL hostname.
+ Owned templates use the owning hostname.
+ Template names are globally unique.
+ */
+CREATE TABLE newsletter_template (
+	name VARCHAR(63) NOT NULL PRIMARY KEY,
+	hostname VARCHAR(127),
+	markup TEXT NOT NULL,
+	created_at BIGINT NOT NULL,
+	updated_at BIGINT NOT NULL,
+	FOREIGN KEY (hostname) REFERENCES hostname_config(hostname) ON DELETE CASCADE
+);
+CREATE UNIQUE INDEX newsletter_template_hostname_name ON newsletter_template(hostname, name);
+/*
  Main table.
  May add or remove without JOINs.
  Unique email, hostname, list_name, but list_name can be NULL.

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Env } from '../common';
 import * as subscriptionRecords from '../db/subscription-records';
-import { deleteApiSubscriber, listApiSubscribers } from './api-subscribers';
+import { deleteSubscriber, listSubscribers } from './subscribers';
 
 vi.mock('../db/subscription-records', () => ({
 	deleteSubscriptionRecordById: vi.fn(),
@@ -17,7 +17,7 @@ beforeEach(() => {
 	vi.resetAllMocks();
 });
 
-describe('listApiSubscribers', () => {
+describe('listSubscribers', () => {
 	it('returns hostname-scoped subscribers', async () => {
 		vi.mocked(subscriptionRecords.listSubscriptionRecordsByHostname).mockResolvedValue([
 			{
@@ -32,7 +32,7 @@ describe('listApiSubscribers', () => {
 			},
 		]);
 
-		const result = await listApiSubscribers(env, {
+		const result = await listSubscribers(env, {
 			hostname: 'softwarepatterns.com',
 			limit: 100,
 			list_name: 'weekly',
@@ -60,11 +60,11 @@ describe('listApiSubscribers', () => {
 	});
 });
 
-describe('deleteApiSubscriber', () => {
+describe('deleteSubscriber', () => {
 	it('fails when the record is missing', async () => {
 		vi.mocked(subscriptionRecords.getSubscriptionRecordById).mockResolvedValue(null);
 
-		const result = await deleteApiSubscriber(env, {
+		const result = await deleteSubscriber(env, {
 			hostname: 'softwarepatterns.com',
 			id: 'sub-1',
 		});
@@ -84,7 +84,7 @@ describe('deleteApiSubscriber', () => {
 			unsubscribed_at: null,
 		});
 
-		const result = await deleteApiSubscriber(env, {
+		const result = await deleteSubscriber(env, {
 			hostname: 'softwarepatterns.com',
 			id: 'sub-1',
 		});
@@ -104,7 +104,7 @@ describe('deleteApiSubscriber', () => {
 			unsubscribed_at: null,
 		});
 
-		const result = await deleteApiSubscriber(env, {
+		const result = await deleteSubscriber(env, {
 			hostname: 'softwarepatterns.com',
 			id: 'sub-1',
 		});

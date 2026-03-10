@@ -1,0 +1,18 @@
+<template id="newsletter-template-starter">
+	<form method="dialog">
+		<label>
+			Email
+			<input data-newsletters-email type="email" required />
+		</label>
+		<label>
+			Name
+			<input data-newsletters-person-name type="text" />
+		</label>
+		<div data-newsletters-turnstile></div>
+		<p data-newsletters-error></p>
+		<div>
+			<button data-newsletters-close type="button">Cancel</button>
+			<button data-newsletters-submit type="submit">Join Weekly</button>
+		</div>
+	</form>
+</template>

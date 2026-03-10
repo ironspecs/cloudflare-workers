@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createSign, generateKeyPairSync } from 'node:crypto';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import http from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -17,6 +17,7 @@ const localOriginHostname = '127.0.0.1';
 const testTurnstileSiteKey = '1x00000000000000000000AA';
 const testDekKekId = 'kek202603101900';
 const testJwksKid = 'test-rs256-key';
+const ownedTemplateName = 'example-owned';
 const testKeksJson = JSON.stringify({
 	active_id: testDekKekId,
 	keys: {
@@ -25,7 +26,30 @@ const testKeksJson = JSON.stringify({
 });
 const testDekWrapped = 'v1.U+JvHS9wSuC747CG.MhLYqrtoU3looBKOyyjGeAf2/7GlXB6uuQ5o66oD5k44Zux2O3e4Z2tOfXDbivXOFPSi6ds/S082vxSK';
 const testTurnstileSecretCiphertext = 'v1.DkN/GUS12go12qyj.AZJae9HJFXg5IS57zL6bngrN88JWH2uytYp+sSNwMt/BYQfknlbcY/JHCUC6YBnRgm+Z';
+const starterTemplatePath = resolve(workspaceDir, 'examples/templates/starter-dialog.html');
+const daisyuiTemplatePath = resolve(workspaceDir, 'examples/templates/tailwind-daisyui-dialog.html');
 const toBase64Url = (value) => Buffer.from(value).toString('base64url');
+const sqlString = (value) => `'${value.replaceAll("'", "''")}'`;
+
+const createOwnedTemplateMarkup = (title) =>
+	`
+<form method="dialog">
+	<label>
+		Email
+		<input data-newsletters-email type="email" required />
+	</label>
+	<label>
+		Name
+		<input data-newsletters-person-name type="text" value="${title}" />
+	</label>
+	<div data-newsletters-turnstile></div>
+	<p data-newsletters-error></p>
+	<div>
+		<button data-newsletters-close type="button">Cancel</button>
+		<button data-newsletters-submit type="submit">Join</button>
+	</div>
+</form>
+`.trim();
 
 const createSignedJwt = (privateKey, payload) => {
 	const header = {
@@ -240,6 +264,23 @@ const main = async () => {
 			workspaceDir,
 		);
 
+		const starterTemplateMarkup = await readFile(starterTemplatePath, 'utf8');
+		const daisyuiTemplateMarkup = await readFile(daisyuiTemplatePath, 'utf8');
+		await runCommand(
+			[
+				wranglerBin,
+				'd1',
+				'execute',
+				'NewslettersD1',
+				'--local',
+				'--persist-to',
+				stateDir,
+				'--command',
+				`INSERT INTO newsletter_template (name, hostname, markup, created_at, updated_at) VALUES (${sqlString('starter')}, NULL, ${sqlString(starterTemplateMarkup)}, 1, 1), (${sqlString('daisyui')}, NULL, ${sqlString(daisyuiTemplateMarkup)}, 1, 1);`,
+			],
+			workspaceDir,
+		);
+
 		const devServer = spawn(
 			process.execPath,
 			[
@@ -270,8 +311,8 @@ const main = async () => {
 			const homepageHtml = await homepage.text();
 			assert.match(homepageHtml, /One worker, two UI options/i);
 			assert.match(homepageHtml, /newsletter-open-button/);
-			assert.match(homepageHtml, /newsletter-open-template-button/);
 			assert.match(homepageHtml, /newsletter-sdk-form/);
+			assert.match(homepageHtml, /newsletters\.js\?template=starter/);
 			assert.match(homepageHtml, /window\.Newsletters\.createSession/);
 
 			const newslettersScriptResponse = await fetch(`${baseUrl}/newsletters.js`);
@@ -282,6 +323,27 @@ const main = async () => {
 			assert.match(newslettersScript, /createSession: async/);
 			assert.match(newslettersScript, /renderTurnstile: async/);
 			assert.match(newslettersScript, /subscribe: async/);
+			assert.match(newslettersScript, /newsletters\/templates/);
+
+			const templatedNewslettersScriptResponse = await fetch(`${baseUrl}/newsletters.js?template=starter`);
+			assert.equal(templatedNewslettersScriptResponse.status, 200);
+			const templatedNewslettersScript = await templatedNewslettersScriptResponse.text();
+			assert.match(templatedNewslettersScript, /searchParams\.get\('template'\)/);
+
+			const publicTemplateResponse = await fetch(`${baseUrl}/newsletters/templates/starter`, {
+				headers: {
+					origin: `https://${testHostname}`,
+				},
+			});
+			assert.equal(publicTemplateResponse.status, 200);
+			assert.equal(publicTemplateResponse.headers.get('access-control-allow-origin'), `https://${testHostname}`);
+			assert.deepEqual(await publicTemplateResponse.json(), {
+				success: true,
+				value: {
+					markup: starterTemplateMarkup,
+					name: 'starter',
+				},
+			});
 
 			const preflightResponse = await fetch(`${baseUrl}/subscribe`, {
 				method: 'OPTIONS',
@@ -330,6 +392,104 @@ const main = async () => {
 					offset: 0,
 				},
 			});
+
+			const emptyTemplatesResponse = await fetch(`${baseUrl}/api/templates?hostname=${encodeURIComponent(testHostname)}`, {
+				method: 'GET',
+				headers: {
+					authorization: `Bearer ${apiToken}`,
+				},
+			});
+			assert.equal(emptyTemplatesResponse.status, 200);
+			assert.deepEqual(await emptyTemplatesResponse.json(), {
+				success: true,
+				value: {
+					items: [],
+				},
+			});
+
+			const createTemplateResponse = await fetch(`${baseUrl}/api/templates`, {
+				method: 'POST',
+				headers: {
+					authorization: `Bearer ${apiToken}`,
+					'content-type': 'application/json',
+				},
+				body: JSON.stringify({
+					hostname: testHostname,
+					markup: createOwnedTemplateMarkup('Created'),
+					name: ownedTemplateName,
+				}),
+			});
+			assert.equal(createTemplateResponse.status, 201);
+			const createdTemplatePayload = await createTemplateResponse.json();
+			assert.equal(createdTemplatePayload.success, true);
+			assert.equal(createdTemplatePayload.value.name, ownedTemplateName);
+			assert.equal(createdTemplatePayload.value.hostname, testHostname);
+
+			const ownedTemplatesResponse = await fetch(`${baseUrl}/api/templates?hostname=${encodeURIComponent(testHostname)}`, {
+				method: 'GET',
+				headers: {
+					authorization: `Bearer ${apiToken}`,
+				},
+			});
+			assert.equal(ownedTemplatesResponse.status, 200);
+			assert.deepEqual(await ownedTemplatesResponse.json(), {
+				success: true,
+				value: {
+					items: [createdTemplatePayload.value],
+				},
+			});
+
+			const ownedTemplateReadResponse = await fetch(
+				`${baseUrl}/api/templates/${ownedTemplateName}?hostname=${encodeURIComponent(testHostname)}`,
+				{
+					method: 'GET',
+					headers: {
+						authorization: `Bearer ${apiToken}`,
+					},
+				},
+			);
+			assert.equal(ownedTemplateReadResponse.status, 200);
+			assert.deepEqual(await ownedTemplateReadResponse.json(), {
+				success: true,
+				value: createdTemplatePayload.value,
+			});
+
+			const browserOwnedTemplateResponse = await fetch(`${baseUrl}/newsletters/templates/${ownedTemplateName}`, {
+				headers: {
+					origin: `https://${testHostname}`,
+				},
+			});
+			assert.equal(browserOwnedTemplateResponse.status, 200);
+			const browserOwnedTemplatePayload = await browserOwnedTemplateResponse.json();
+			assert.equal(browserOwnedTemplatePayload.success, true);
+			assert.equal(browserOwnedTemplatePayload.value.name, ownedTemplateName);
+
+			const forbiddenOwnedTemplateResponse = await fetch(`${baseUrl}/newsletters/templates/${ownedTemplateName}`, {
+				headers: {
+					origin: `http://${localOriginHostname}:4173`,
+				},
+			});
+			assert.equal(forbiddenOwnedTemplateResponse.status, 404);
+			assert.deepEqual(await forbiddenOwnedTemplateResponse.json(), {
+				error: 'NOT_FOUND',
+				success: false,
+			});
+
+			const updateTemplateResponse = await fetch(`${baseUrl}/api/templates/${ownedTemplateName}`, {
+				method: 'PATCH',
+				headers: {
+					authorization: `Bearer ${apiToken}`,
+					'content-type': 'application/json',
+				},
+				body: JSON.stringify({
+					hostname: testHostname,
+					markup: createOwnedTemplateMarkup('Updated'),
+				}),
+			});
+			assert.equal(updateTemplateResponse.status, 200);
+			const updatedTemplatePayload = await updateTemplateResponse.json();
+			assert.equal(updatedTemplatePayload.success, true);
+			assert.match(updatedTemplatePayload.value.markup, /Updated/);
 
 			const missingAuthorizationResponse = await fetch(`${baseUrl}/api/subscribers?hostname=${encodeURIComponent(testHostname)}`, {
 				method: 'GET',
@@ -462,6 +622,36 @@ const main = async () => {
 				value: 'SINK_ACCEPTED',
 			});
 			await assertSubscriptionCount(stateDir, 0);
+
+			const deleteTemplateResponse = await fetch(
+				`${baseUrl}/api/templates/${ownedTemplateName}?hostname=${encodeURIComponent(testHostname)}`,
+				{
+					method: 'DELETE',
+					headers: {
+						authorization: `Bearer ${apiToken}`,
+					},
+				},
+			);
+			assert.equal(deleteTemplateResponse.status, 200);
+			assert.deepEqual(await deleteTemplateResponse.json(), {
+				success: true,
+				value: 'DELETED',
+			});
+
+			const missingTemplateResponse = await fetch(
+				`${baseUrl}/api/templates/${ownedTemplateName}?hostname=${encodeURIComponent(testHostname)}`,
+				{
+					method: 'GET',
+					headers: {
+						authorization: `Bearer ${apiToken}`,
+					},
+				},
+			);
+			assert.equal(missingTemplateResponse.status, 404);
+			assert.deepEqual(await missingTemplateResponse.json(), {
+				error: 'NOT_FOUND',
+				success: false,
+			});
 
 			const reusedSessionResponse = await fetch(`${baseUrl}/subscribe`, {
 				method: 'POST',

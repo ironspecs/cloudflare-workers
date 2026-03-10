@@ -29,6 +29,18 @@ export const list_config = sqliteTable(
 	(table) => [uniqueIndex('list_config_hostname_list_name').on(table.hostname, table.list_name)],
 );
 
+export const newsletter_template = sqliteTable(
+	'newsletter_template',
+	{
+		name: text('name').notNull().primaryKey(),
+		hostname: text('hostname').references(() => hostname_config.hostname, { onDelete: 'cascade' }),
+		markup: text('markup').notNull(),
+		created_at: integer('created_at', { mode: 'number' }).notNull(),
+		updated_at: integer('updated_at', { mode: 'number' }).notNull(),
+	},
+	(table) => [uniqueIndex('newsletter_template_hostname_name').on(table.hostname, table.name)],
+);
+
 export const subscription = sqliteTable(
 	'subscription',
 	{

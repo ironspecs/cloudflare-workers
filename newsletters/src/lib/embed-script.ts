@@ -18,7 +18,9 @@ export const createEmbedScript = () => `
 		throw createError('INVALID_SCRIPT_SOURCE');
 	}
 
-	const serviceOrigin = new URL(scriptSource).origin;
+	const scriptUrl = new URL(scriptSource);
+	const requestedTemplateName = scriptUrl.searchParams.get('template') || '';
+	const serviceOrigin = scriptUrl.origin;
 
 	const ensureTurnstile = () => {
 		if (window.turnstile) {
@@ -68,6 +70,7 @@ export const createEmbedScript = () => `
 		if (dialog.open) {
 			dialog.close();
 		}
+
 		dialog.remove();
 	};
 
@@ -135,16 +138,21 @@ export const createEmbedScript = () => `
 		return wrapper.firstElementChild;
 	};
 
-	const createTemplateDialogContent = (templateSelector) => {
-		const template = document.querySelector(templateSelector);
-		if (!(template instanceof HTMLTemplateElement)) {
-			throw createError('INVALID_TEMPLATE_SELECTOR');
+	const createTemplateMarkupRoot = (markup) => {
+		const wrapper = document.createElement('div');
+		wrapper.innerHTML = markup.trim();
+		if (wrapper.firstElementChild instanceof HTMLTemplateElement) {
+			const templateWrapper = document.createElement('div');
+			templateWrapper.appendChild(wrapper.firstElementChild.content.cloneNode(true));
+			return templateWrapper;
 		}
 
-		const fragment = template.content.cloneNode(true);
-		const wrapper = document.createElement('div');
-		wrapper.appendChild(fragment);
-		const form = wrapper.querySelector('form');
+		return wrapper;
+	};
+
+	const createServerTemplateDialogContent = (markup) => {
+		const root = createTemplateMarkupRoot(markup);
+		const form = root.querySelector('form');
 		if (!(form instanceof HTMLFormElement)) {
 			throw createError('INVALID_TEMPLATE_FORM');
 		}
@@ -152,12 +160,9 @@ export const createEmbedScript = () => `
 		return form;
 	};
 
-	const createDialogView = (options) => {
+	const createDialogView = (templateMarkup) => {
 		const dialog = createDialogShell();
-		const form =
-			typeof options.template === 'string' && options.template.length > 0
-				? createTemplateDialogContent(options.template)
-				: createDefaultDialogContent();
+		const form = typeof templateMarkup === 'string' && templateMarkup.length > 0 ? createServerTemplateDialogContent(templateMarkup) : createDefaultDialogContent();
 		dialog.appendChild(form);
 
 		return {
@@ -217,6 +222,59 @@ export const createEmbedScript = () => `
 		return payload.value;
 	};
 
+	const fetchTemplateMarkup = async (name) => {
+		const response = await fetch(\`\${serviceOrigin}/newsletters/templates/\${encodeURIComponent(name)}\`);
+		const payload = await parseJsonResponse(response);
+		if (!response.ok || !payload.success || typeof payload.value?.markup !== 'string') {
+			throw createError(payload.error || 'INVALID_TEMPLATE_RESPONSE');
+		}
+
+		return payload.value.markup;
+	};
+
+	const createRequestedTemplateState = (name) => {
+		if (!name) {
+			return null;
+		}
+
+		const state = {
+			error: null,
+			markup: '',
+			promise: Promise.resolve(),
+		};
+		state.promise = fetchTemplateMarkup(name)
+			.then((markup) => {
+				state.markup = markup;
+			})
+			.catch((error) => {
+				state.error = error instanceof Error ? error : createError(String(error));
+			});
+		return state;
+	};
+
+	const requestedTemplateState = createRequestedTemplateState(requestedTemplateName);
+
+	const getRequestedTemplateMarkup = async () => {
+		if (!requestedTemplateState) {
+			return null;
+		}
+
+		if (requestedTemplateState.markup) {
+			return requestedTemplateState.markup;
+		}
+
+		await requestedTemplateState.promise;
+		if (requestedTemplateState.error) {
+			throw requestedTemplateState.error;
+		}
+
+		if (!requestedTemplateState.markup) {
+			throw createError('INVALID_TEMPLATE_RESPONSE');
+		}
+
+		return requestedTemplateState.markup;
+	};
+
 	const submitSubscription = async ({
 		email,
 		hostname = window.location.hostname,
@@ -273,12 +331,20 @@ export const createEmbedScript = () => `
 		};
 	};
 
-	const openDialog = async ({ listName = '', personName = '', template } = {}) => {
-		const session = await requestSession({
-			action: 'subscribe',
-			listName,
-		});
-		const view = createDialogView({ template });
+	const toFailureResult = (error) => ({
+		error: error instanceof Error ? error.message : String(error),
+		success: false,
+	});
+
+	const openDialog = async ({ listName = '', personName = '' } = {}) => {
+		const [session, templateMarkup] = await Promise.all([
+			requestSession({
+				action: 'subscribe',
+				listName,
+			}),
+			getRequestedTemplateMarkup(),
+		]);
+		const view = createDialogView(templateMarkup);
 		const turnstileControl = await renderTurnstile(view.turnstileContainer, {
 			siteKey: session.siteKey,
 		});
@@ -293,7 +359,7 @@ export const createEmbedScript = () => `
 
 		view.dialog.showModal();
 
-		return new Promise((resolve, reject) => {
+		return new Promise((resolve) => {
 			const onSubmitTriggerClick = (event) => {
 				if (!shouldInterceptSubmitClick(view.submitTrigger)) {
 					return;
@@ -344,7 +410,7 @@ export const createEmbedScript = () => `
 					resolve(payload);
 				} catch (submitError) {
 					cleanup();
-					reject(submitError);
+					resolve(toFailureResult(submitError));
 				}
 			};
 
@@ -358,8 +424,12 @@ export const createEmbedScript = () => `
 		createSession: async ({ action = 'subscribe', listName = '' } = {}) => {
 			return requestSession({ action, listName });
 		},
-		open: async ({ listName = '', personName = '', template } = {}) => {
-			return openDialog({ listName, personName, template });
+		open: async ({ listName = '', personName = '' } = {}) => {
+			try {
+				return await openDialog({ listName, personName });
+			} catch (error) {
+				return toFailureResult(error);
+			}
 		},
 		renderTurnstile: async (container, { siteKey }) => {
 			return renderTurnstile(container, { siteKey });

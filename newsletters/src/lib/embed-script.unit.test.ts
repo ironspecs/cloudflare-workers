@@ -20,13 +20,16 @@ describe('createEmbedScript', () => {
 		expect(source).toContain('turnstile.reset');
 		expect(source).toContain('turnstile.remove');
 		expect(source).toContain('/newsletters/session');
+		expect(source).toContain('/newsletters/templates/');
 		expect(source).toContain('/subscribe');
 		expect(source).toContain('X-Submit-Token');
+		expect(source).toContain("searchParams.get('template')");
 		expect(source).toContain('data-newsletters-email');
 		expect(source).toContain('data-newsletters-turnstile');
-		expect(source).toContain('INVALID_TEMPLATE_SELECTOR');
+		expect(source).toContain('INVALID_TEMPLATE_FORM');
 		expect(source).toContain('INVALID_TEMPLATE_EMAIL');
 		expect(source).toContain('TURNSTILE_NOT_READY');
 		expect(source).toContain('INVALID_SUBMIT_TOKEN');
+		expect(source).not.toContain('INVALID_TEMPLATE_SELECTOR');
 	});
 });

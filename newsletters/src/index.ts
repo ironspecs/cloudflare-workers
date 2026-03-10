@@ -5,8 +5,17 @@ import { email as validEmail, object, optional, picklist, pipe, string } from 'v
 import type { Env } from './common';
 import htmlContent from '../examples/local-embed/index.html';
 import { getHostnameConfigByHostname } from './db/hostname-config-records';
+import type { TemplateRecord } from './db/newsletter-template-records';
 import type { SubscriptionRecord } from './db/subscription-records';
-import { deleteApiSubscriber, listApiSubscribers } from './domain/api-subscribers';
+import { deleteSubscriber, listSubscribers } from './domain/subscribers';
+import {
+	createOwnedTemplate,
+	deleteOwnedTemplate,
+	findTemplateVisibleToHostname,
+	getOwnedTemplate,
+	listOwnedTemplates,
+	updateOwnedTemplate,
+} from './domain/templates';
 import { subscribe, unsubscribe } from './domain/subscriptions';
 import { getBrowserRequestContext } from './lib/browser';
 import { createEmbedScript } from './lib/embed-script';
@@ -21,6 +30,7 @@ import { getTurnstileSiteKey, verifyTurnstileToken } from './lib/turnstile';
 const app = new Hono<{ Bindings: Env }>();
 const API_SUBSCRIBERS_DEFAULT_LIMIT = 100;
 const API_SUBSCRIBERS_MAX_LIMIT = 500;
+const TEMPLATE_NAME_PATTERN = /^[a-z0-9][a-z0-9-]{1,62}$/;
 
 const newsletterSessionSchema = object({
 	query: object({}),
@@ -56,11 +66,36 @@ const apiDeleteSubscriberQuerySchema = object({
 	hostname: string(),
 });
 
+const apiTemplatesQuerySchema = object({
+	hostname: string(),
+});
+
+const apiCreateTemplateSchema = object({
+	query: object({}),
+	body: object({
+		hostname: string(),
+		markup: string(),
+		name: string(),
+	}),
+});
+
+const apiUpdateTemplateSchema = object({
+	query: object({}),
+	body: object({
+		hostname: string(),
+		markup: string(),
+	}),
+});
+
+const apiTemplateErrorStatusCodes = {
+	ALREADY_EXISTS: 409,
+	INVALID_TEMPLATE_MARKUP: 400,
+	INVALID_TEMPLATE_NAME: 400,
+	NOT_FOUND: 404,
+} as const;
+
 const createErrorResponse = (error: string | string[], status: number, headers?: HeadersInit) =>
 	createJSONResponse({ error, success: false }, status, headers);
-
-const createResultResponse = <T, E>(result: { success: boolean; value?: T; error?: E }, headers?: HeadersInit) =>
-	createJSONResponse(result as Record<string, unknown>, result.success ? 200 : 400, headers);
 
 const createOptionsResponse = (headers: HeadersInit) =>
 	new Response(null, {
@@ -114,7 +149,7 @@ const createSubscriptionOutcomeResponse = (
 	}
 };
 
-const createApiDeleteOutcomeResponse = (outcome: Awaited<ReturnType<typeof deleteApiSubscriber>>): Response => {
+const createApiDeleteOutcomeResponse = (outcome: Awaited<ReturnType<typeof deleteSubscriber>>): Response => {
 	switch (outcome.code) {
 		case 'DELETED':
 			return createValueResponse(outcome.code);
@@ -171,6 +206,18 @@ const serializeSubscriptionRecord = (record: SubscriptionRecord) => {
 	};
 };
 
+const serializeTemplateRecord = (record: TemplateRecord) => {
+	return {
+		created_at: record.createdAt.toISOString(),
+		hostname: record.hostname,
+		markup: record.markup,
+		name: record.name,
+		updated_at: record.updatedAt.toISOString(),
+	};
+};
+
+const isValidTemplateName = (value: string): boolean => TEMPLATE_NAME_PATTERN.test(value);
+
 const getKnownHostnameConfig = async (env: Env, hostname: string) => {
 	return getHostnameConfigByHostname(env.NewslettersD1, hostname.toLowerCase());
 };
@@ -181,7 +228,12 @@ const serviceAuthStatusCodes: Record<ServiceAuthError, number> = {
 	JWT_NOT_CONFIGURED: 403,
 };
 
-const authorizeApiHostnameRequest = async (request: Request, env: Env, hostname: string) => {
+const withAuthorizedApiHostname = async (
+	request: Request,
+	env: Env,
+	hostname: string,
+	handler: (authorizedRequest: { hostname: string }) => Promise<Response>,
+): Promise<Response> => {
 	const normalizedHostname = hostname.toLowerCase();
 	const hostnameConfig = await getKnownHostnameConfig(env, normalizedHostname);
 	if (hostnameConfig === null) {
@@ -201,10 +253,9 @@ const authorizeApiHostnameRequest = async (request: Request, env: Env, hostname:
 		return createErrorResponse(authResult.error, serviceAuthStatusCodes[authResult.error]);
 	}
 
-	return {
+	return handler({
 		hostname: normalizedHostname,
-		payload: authResult.value.payload,
-	};
+	});
 };
 
 const handleNewslettersScript = async (): Promise<Response> => {
@@ -243,13 +294,10 @@ const handleNewslettersSession = async (request: Request, env: Env): Promise<Res
 		origin: browserContext.value.origin,
 	});
 
-	return createResultResponse(
+	return createValueResponse(
 		{
-			success: true,
-			value: {
-				...session,
-				siteKey,
-			},
+			...session,
+			siteKey,
 		},
 		browserContext.value.corsHeaders,
 	);
@@ -368,39 +416,36 @@ const handleApiSubscribersList = async (request: Request, env: Env): Promise<Res
 	}
 
 	const output = parsedQuery.output as InferOutput<typeof apiSubscribersQuerySchema>;
-	const authResult = await authorizeApiHostnameRequest(request, env, output.hostname);
-	if (authResult instanceof Response) {
-		return authResult;
-	}
+	return withAuthorizedApiHostname(request, env, output.hostname, async ({ hostname }) => {
+		const limit = parseBoundedInteger(output.limit, {
+			defaultValue: API_SUBSCRIBERS_DEFAULT_LIMIT,
+			maxValue: API_SUBSCRIBERS_MAX_LIMIT,
+			minValue: 1,
+		});
+		if (limit === null) {
+			return createErrorResponse('INVALID_LIMIT', 400);
+		}
 
-	const limit = parseBoundedInteger(output.limit, {
-		defaultValue: API_SUBSCRIBERS_DEFAULT_LIMIT,
-		maxValue: API_SUBSCRIBERS_MAX_LIMIT,
-		minValue: 1,
-	});
-	if (limit === null) {
-		return createErrorResponse('INVALID_LIMIT', 400);
-	}
+		const offset = parseBoundedInteger(output.offset, {
+			defaultValue: 0,
+			maxValue: Number.MAX_SAFE_INTEGER,
+		});
+		if (offset === null) {
+			return createErrorResponse('INVALID_OFFSET', 400);
+		}
 
-	const offset = parseBoundedInteger(output.offset, {
-		defaultValue: 0,
-		maxValue: Number.MAX_SAFE_INTEGER,
-	});
-	if (offset === null) {
-		return createErrorResponse('INVALID_OFFSET', 400);
-	}
-
-	const subscribers = await listApiSubscribers(env, {
-		hostname: authResult.hostname,
-		limit,
-		list_name: parsedQuery.output.list_name,
-		offset,
-	});
-	return createValueResponse({
-		has_more: subscribers.length === limit,
-		items: subscribers.map(serializeSubscriptionRecord),
-		limit,
-		offset,
+		const subscribers = await listSubscribers(env, {
+			hostname,
+			limit,
+			list_name: parsedQuery.output.list_name,
+			offset,
+		});
+		return createValueResponse({
+			has_more: subscribers.length === limit,
+			items: subscribers.map(serializeSubscriptionRecord),
+			limit,
+			offset,
+		});
 	});
 };
 
@@ -414,21 +459,165 @@ const handleApiSubscriberDelete = async (request: Request, env: Env, id: string)
 	}
 
 	const output = parsedQuery.output as InferOutput<typeof apiDeleteSubscriberQuerySchema>;
-	const authResult = await authorizeApiHostnameRequest(request, env, output.hostname);
-	if (authResult instanceof Response) {
-		return authResult;
+	return withAuthorizedApiHostname(request, env, output.hostname, async ({ hostname }) =>
+		createApiDeleteOutcomeResponse(
+			await deleteSubscriber(env, {
+				hostname,
+				id,
+			}),
+		),
+	);
+};
+
+const handleNewslettersTemplateRead = async (request: Request, env: Env, name: string): Promise<Response> => {
+	const browserContext = await getBrowserRequestContext(env, request);
+	if (!browserContext.success) {
+		return createErrorResponse(browserContext.error, 403);
 	}
 
-	return createApiDeleteOutcomeResponse(
-		await deleteApiSubscriber(env, {
-			hostname: authResult.hostname,
-			id,
-		}),
+	if (!isValidTemplateName(name)) {
+		return createErrorResponse('INVALID_TEMPLATE_NAME', 400, browserContext.value.corsHeaders);
+	}
+
+	const template = await findTemplateVisibleToHostname(env, {
+		hostname: browserContext.value.hostname,
+		name,
+	});
+	if (template === null) {
+		return createErrorResponse('NOT_FOUND', 404, browserContext.value.corsHeaders);
+	}
+
+	return createValueResponse(
+		{
+			markup: template.markup,
+			name: template.name,
+		},
+		browserContext.value.corsHeaders,
 	);
+};
+
+const handleApiTemplatesList = async (request: Request, env: Env): Promise<Response> => {
+	const parsedQuery = await parseQuery(request, apiTemplatesQuerySchema);
+	if (!parsedQuery.success) {
+		return createErrorResponse(
+			parsedQuery.issues.map((issue) => issue.message),
+			400,
+		);
+	}
+
+	const output = parsedQuery.output as InferOutput<typeof apiTemplatesQuerySchema>;
+	return withAuthorizedApiHostname(request, env, output.hostname, async ({ hostname }) => {
+		return createValueResponse({
+			items: (await listOwnedTemplates(env, hostname)).map(serializeTemplateRecord),
+		});
+	});
+};
+
+const handleApiTemplateRead = async (request: Request, env: Env, name: string): Promise<Response> => {
+	if (!isValidTemplateName(name)) {
+		return createErrorResponse('INVALID_TEMPLATE_NAME', 400);
+	}
+
+	const parsedQuery = await parseQuery(request, apiTemplatesQuerySchema);
+	if (!parsedQuery.success) {
+		return createErrorResponse(
+			parsedQuery.issues.map((issue) => issue.message),
+			400,
+		);
+	}
+
+	const output = parsedQuery.output as InferOutput<typeof apiTemplatesQuerySchema>;
+	return withAuthorizedApiHostname(request, env, output.hostname, async ({ hostname }) => {
+		const template = await getOwnedTemplate(env, {
+			hostname,
+			name,
+		});
+		if (template === null) {
+			return createErrorResponse('NOT_FOUND', 404);
+		}
+
+		return createValueResponse(serializeTemplateRecord(template));
+	});
+};
+
+const handleApiTemplateCreate = async (request: Request, env: Env): Promise<Response> => {
+	const parsedRequest = await parseRequest(request, apiCreateTemplateSchema);
+	if (!parsedRequest.success) {
+		return createParseRequestErrorResponse(parsedRequest.error);
+	}
+
+	if (!isValidTemplateName(parsedRequest.value.body.name)) {
+		return createErrorResponse('INVALID_TEMPLATE_NAME', 400);
+	}
+
+	return withAuthorizedApiHostname(request, env, parsedRequest.value.body.hostname, async ({ hostname }) => {
+		const templateResult = await createOwnedTemplate(env, {
+			hostname,
+			markup: parsedRequest.value.body.markup,
+			name: parsedRequest.value.body.name,
+		});
+		if (templateResult.code !== 'CREATED') {
+			return createErrorResponse(templateResult.code, apiTemplateErrorStatusCodes[templateResult.code]);
+		}
+
+		return createValueResponse(serializeTemplateRecord(templateResult.template), undefined, 201);
+	});
+};
+
+const handleApiTemplateUpdate = async (request: Request, env: Env, name: string): Promise<Response> => {
+	if (!isValidTemplateName(name)) {
+		return createErrorResponse('INVALID_TEMPLATE_NAME', 400);
+	}
+
+	const parsedRequest = await parseRequest(request, apiUpdateTemplateSchema);
+	if (!parsedRequest.success) {
+		return createParseRequestErrorResponse(parsedRequest.error);
+	}
+
+	return withAuthorizedApiHostname(request, env, parsedRequest.value.body.hostname, async ({ hostname }) => {
+		const templateResult = await updateOwnedTemplate(env, {
+			hostname,
+			markup: parsedRequest.value.body.markup,
+			name,
+		});
+		if (templateResult.code !== 'UPDATED') {
+			return createErrorResponse(templateResult.code, apiTemplateErrorStatusCodes[templateResult.code]);
+		}
+
+		return createValueResponse(serializeTemplateRecord(templateResult.template));
+	});
+};
+
+const handleApiTemplateDelete = async (request: Request, env: Env, name: string): Promise<Response> => {
+	if (!isValidTemplateName(name)) {
+		return createErrorResponse('INVALID_TEMPLATE_NAME', 400);
+	}
+
+	const parsedQuery = await parseQuery(request, apiTemplatesQuerySchema);
+	if (!parsedQuery.success) {
+		return createErrorResponse(
+			parsedQuery.issues.map((issue) => issue.message),
+			400,
+		);
+	}
+
+	const output = parsedQuery.output as InferOutput<typeof apiTemplatesQuerySchema>;
+	return withAuthorizedApiHostname(request, env, output.hostname, async ({ hostname }) => {
+		const deleteResult = await deleteOwnedTemplate(env, {
+			hostname,
+			name,
+		});
+		if (deleteResult.code === 'NOT_FOUND') {
+			return createErrorResponse(deleteResult.code, 404);
+		}
+
+		return createValueResponse(deleteResult.code);
+	});
 };
 
 app.get('/', () => createHTMLResponse(htmlContent));
 app.get('/newsletters.js', () => handleNewslettersScript());
+app.get('/newsletters/templates/:name', (c) => handleNewslettersTemplateRead(c.req.raw, c.env, c.req.param('name')));
 app.post('/newsletters/session', (c) => handleNewslettersSession(c.req.raw, c.env));
 app.options('/newsletters/session', (c) => handleOptions(c.req.raw, c.env));
 app.post('/subscribe', (c) => handleProtectedSubscription(c.req.raw, c.env, NewsletterSessionAction.Subscribe, subscribe));
@@ -445,6 +634,11 @@ app.post('/confirm/send', (c) => handleDisabledConfirmationWrite(c.req.raw, c.en
 app.options('/confirm/send', (c) => handleOptions(c.req.raw, c.env));
 app.get('/api/subscribers', (c) => handleApiSubscribersList(c.req.raw, c.env));
 app.delete('/api/subscribers/:id', (c) => handleApiSubscriberDelete(c.req.raw, c.env, c.req.param('id')));
+app.get('/api/templates', (c) => handleApiTemplatesList(c.req.raw, c.env));
+app.get('/api/templates/:name', (c) => handleApiTemplateRead(c.req.raw, c.env, c.req.param('name')));
+app.post('/api/templates', (c) => handleApiTemplateCreate(c.req.raw, c.env));
+app.patch('/api/templates/:name', (c) => handleApiTemplateUpdate(c.req.raw, c.env, c.req.param('name')));
+app.delete('/api/templates/:name', (c) => handleApiTemplateDelete(c.req.raw, c.env, c.req.param('name')));
 
 app.notFound(() => new Response('Not found', { status: 404 }));
 
