@@ -13,7 +13,7 @@ const workspaceDir = resolve(__dirname, '..');
 const wranglerBin = resolve(workspaceDir, '../node_modules/wrangler/bin/wrangler.js');
 const turnstileTestToken = 'XXXX.DUMMY.TOKEN.XXXX';
 const testHostname = 'example.com';
-const localOriginHostname = '127.0.0.1';
+const demoOrigin = 'http://local.test:8080';
 const testTurnstileSiteKey = '1x00000000000000000000AA';
 const testDekKekId = 'kek202603101900';
 const testJwksKid = 'test-rs256-key';
@@ -244,21 +244,6 @@ const main = async () => {
 				'--persist-to',
 				stateDir,
 				'--command',
-				`INSERT INTO hostname_config (hostname, jwks_url, turnstile_site_key) VALUES ('localhost', NULL, NULL), ('${localOriginHostname}', NULL, NULL);`,
-			],
-			workspaceDir,
-		);
-
-		await runCommand(
-			[
-				wranglerBin,
-				'd1',
-				'execute',
-				'NewslettersD1',
-				'--local',
-				'--persist-to',
-				stateDir,
-				'--command',
 				`INSERT INTO hostname_config_secrets (hostname, dek_kek_id, dek_wrapped, turnstile_secret_key_ciphertext) VALUES ('${testHostname}', '${testDekKekId}', '${testDekWrapped}', '${testTurnstileSecretCiphertext}');`,
 			],
 			workspaceDir,
@@ -312,7 +297,8 @@ const main = async () => {
 			assert.match(homepageHtml, /One worker, two UI options/i);
 			assert.match(homepageHtml, /newsletter-open-button/);
 			assert.match(homepageHtml, /newsletter-sdk-form/);
-			assert.match(homepageHtml, /newsletters\.js\?template=starter/);
+			assert.match(homepageHtml, /function open\(o\)\{open\.q\.push\(o\)\}/);
+			assert.match(homepageHtml, /newsletters\.js\?template=starter&mode=demo/);
 			assert.match(homepageHtml, /window\.Newsletters\.createSession/);
 
 			const newslettersScriptResponse = await fetch(`${baseUrl}/newsletters.js`);
@@ -344,6 +330,27 @@ const main = async () => {
 					name: 'starter',
 				},
 			});
+
+			const directPublicTemplateResponse = await fetch(`${baseUrl}/newsletters/templates/starter`);
+			assert.equal(directPublicTemplateResponse.status, 200);
+			assert.deepEqual(await directPublicTemplateResponse.json(), {
+				success: true,
+				value: {
+					markup: starterTemplateMarkup,
+					name: 'starter',
+				},
+			});
+
+			const publicTemplateFromUnknownOriginResponse = await fetch(`${baseUrl}/newsletters/templates/daisyui`, {
+				headers: {
+					origin: 'https://www.softwarepatterns.com',
+				},
+			});
+			assert.equal(publicTemplateFromUnknownOriginResponse.status, 200);
+			assert.equal(publicTemplateFromUnknownOriginResponse.headers.get('access-control-allow-origin'), 'https://www.softwarepatterns.com');
+			const publicTemplateFromUnknownOriginPayload = await publicTemplateFromUnknownOriginResponse.json();
+			assert.equal(publicTemplateFromUnknownOriginPayload.success, true);
+			assert.equal(publicTemplateFromUnknownOriginPayload.value.name, 'daisyui');
 
 			const preflightResponse = await fetch(`${baseUrl}/subscribe`, {
 				method: 'OPTIONS',
@@ -379,10 +386,12 @@ const main = async () => {
 			const subscribersResponse = await fetch(`${baseUrl}/api/subscribers?hostname=${encodeURIComponent(testHostname)}`, {
 				method: 'GET',
 				headers: {
+					origin: `https://${testHostname}`,
 					authorization: `Bearer ${apiToken}`,
 				},
 			});
 			assert.equal(subscribersResponse.status, 200);
+			assert.equal(subscribersResponse.headers.get('access-control-allow-origin'), `https://${testHostname}`);
 			assert.deepEqual(await subscribersResponse.json(), {
 				success: true,
 				value: {
@@ -466,12 +475,19 @@ const main = async () => {
 
 			const forbiddenOwnedTemplateResponse = await fetch(`${baseUrl}/newsletters/templates/${ownedTemplateName}`, {
 				headers: {
-					origin: `http://${localOriginHostname}:4173`,
+					origin: 'http://127.0.0.1:4173',
 				},
 			});
-			assert.equal(forbiddenOwnedTemplateResponse.status, 404);
+			assert.equal(forbiddenOwnedTemplateResponse.status, 403);
 			assert.deepEqual(await forbiddenOwnedTemplateResponse.json(), {
-				error: 'NOT_FOUND',
+				error: 'UNKNOWN_HOSTNAME',
+				success: false,
+			});
+
+			const directOwnedTemplateResponse = await fetch(`${baseUrl}/newsletters/templates/${ownedTemplateName}`);
+			assert.equal(directOwnedTemplateResponse.status, 403);
+			assert.deepEqual(await directOwnedTemplateResponse.json(), {
+				error: 'MISSING_ORIGIN',
 				success: false,
 			});
 
@@ -585,39 +601,48 @@ const main = async () => {
 				success: false,
 			});
 
-			const localSessionResponse = await fetch(`${baseUrl}/newsletters/session`, {
+			const demoPreflightResponse = await fetch(`${baseUrl}/newsletters/session?mode=demo`, {
+				method: 'OPTIONS',
+				headers: {
+					origin: demoOrigin,
+				},
+			});
+			assert.equal(demoPreflightResponse.status, 204);
+			assert.equal(demoPreflightResponse.headers.get('access-control-allow-origin'), demoOrigin);
+
+			const demoSessionResponse = await fetch(`${baseUrl}/newsletters/session?mode=demo`, {
 				method: 'POST',
 				headers: {
 					'content-type': 'application/json',
-					origin: `http://${localOriginHostname}:4173`,
+					origin: demoOrigin,
 				},
 				body: JSON.stringify({
 					action: 'subscribe',
 					list_name: 'weekly',
 				}),
 			});
-			assert.equal(localSessionResponse.status, 200);
-			const { payload: localSessionPayload } = await parseJsonResponse(localSessionResponse);
-			assert.deepEqual(localSessionPayload.success, true);
-			assert.equal(localSessionPayload.value.siteKey, testTurnstileSiteKey);
+			assert.equal(demoSessionResponse.status, 200);
+			const { payload: demoSessionPayload } = await parseJsonResponse(demoSessionResponse);
+			assert.deepEqual(demoSessionPayload.success, true);
+			assert.equal(demoSessionPayload.value.siteKey, testTurnstileSiteKey);
 
-			const localSubscribeResponse = await fetch(`${baseUrl}/subscribe`, {
+			const demoSubscribeResponse = await fetch(`${baseUrl}/subscribe?mode=demo`, {
 				method: 'POST',
 				headers: {
 					'content-type': 'application/json',
-					origin: `http://${localOriginHostname}:4173`,
-					'x-submit-token': localSessionPayload.value.submitToken,
+					origin: demoOrigin,
+					'x-submit-token': demoSessionPayload.value.submitToken,
 				},
 				body: JSON.stringify({
 					email: 'dev@example.com',
-					hostname: localOriginHostname,
+					hostname: 'local.test',
 					list_name: 'weekly',
 					turnstile_token: turnstileTestToken,
 				}),
 			});
-			const { payload: localSubscribePayload, status: localSubscribeStatus } = await parseJsonResponse(localSubscribeResponse);
-			assert.equal(localSubscribeStatus, 200, JSON.stringify(localSubscribePayload));
-			assert.deepEqual(localSubscribePayload, {
+			const { payload: demoSubscribePayload, status: demoSubscribeStatus } = await parseJsonResponse(demoSubscribeResponse);
+			assert.equal(demoSubscribeStatus, 200, JSON.stringify(demoSubscribePayload));
+			assert.deepEqual(demoSubscribePayload, {
 				success: true,
 				value: 'SINK_ACCEPTED',
 			});

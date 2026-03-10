@@ -12,14 +12,16 @@ import {
 	createOwnedTemplate,
 	deleteOwnedTemplate,
 	findTemplateVisibleToHostname,
+	getPublicTemplate,
 	getOwnedTemplate,
 	listOwnedTemplates,
 	updateOwnedTemplate,
 } from './domain/templates';
 import { subscribe, unsubscribe } from './domain/subscriptions';
-import { getBrowserRequestContext } from './lib/browser';
+import { applyOriginCorsHeaders, getBrowserOriginContext, getBrowserRequestContext } from './lib/browser';
 import { createEmbedScript } from './lib/embed-script';
 import { logError } from './lib/log';
+import { NEWSLETTER_MODE_DEMO, getNewsletterMode } from './lib/newsletter-mode';
 import { createNewsletterSession, NewsletterSessionAction, validateNewsletterSession } from './lib/newsletter-sessions';
 import { parseRequest } from './lib/requests';
 import { createHTMLResponse, createJSONResponse, createJavaScriptResponse } from './lib/responses';
@@ -228,6 +230,17 @@ const serviceAuthStatusCodes: Record<ServiceAuthError, number> = {
 	JWT_NOT_CONFIGURED: 403,
 };
 
+app.use('*', async (c, next) => {
+	await next();
+
+	const origin = c.req.header('Origin');
+	if (!origin) {
+		return;
+	}
+
+	applyOriginCorsHeaders(c.res.headers, origin);
+});
+
 const withAuthorizedApiHostname = async (
 	request: Request,
 	env: Env,
@@ -263,14 +276,20 @@ const handleNewslettersScript = async (): Promise<Response> => {
 };
 
 const handleNewslettersSession = async (request: Request, env: Env): Promise<Response> => {
-	const browserContext = await getBrowserRequestContext(env, request);
-	if (!browserContext.success) {
-		return createErrorResponse(browserContext.error, 403);
-	}
-
 	const parsedRequest = await parseRequest(request, newsletterSessionSchema);
 	if (!parsedRequest.success) {
-		return createParseRequestErrorResponse(parsedRequest.error, browserContext.value.corsHeaders);
+		return createParseRequestErrorResponse(parsedRequest.error);
+	}
+
+	const modeResult = getNewsletterMode(request);
+	if (!modeResult.success) {
+		return createErrorResponse(modeResult.error, 400);
+	}
+
+	const browserContext =
+		modeResult.value === NEWSLETTER_MODE_DEMO ? getBrowserOriginContext(request) : await getBrowserRequestContext(env, request);
+	if (!browserContext.success) {
+		return createErrorResponse(browserContext.error, 403);
 	}
 
 	const rateLimitResponse = await applyBrowserRateLimit(
@@ -283,7 +302,7 @@ const handleNewslettersSession = async (request: Request, env: Env): Promise<Res
 		return rateLimitResponse;
 	}
 
-	const siteKey = await getTurnstileSiteKey(env, browserContext.value.hostname);
+	const siteKey = await getTurnstileSiteKey(env, browserContext.value.hostname, modeResult.value);
 	if (!siteKey) {
 		return createErrorResponse('TURNSTILE_NOT_CONFIGURED', 500, browserContext.value.corsHeaders);
 	}
@@ -291,6 +310,7 @@ const handleNewslettersSession = async (request: Request, env: Env): Promise<Res
 	const session = await createNewsletterSession(env, {
 		action: parsedRequest.value.body.action,
 		hostname: browserContext.value.hostname,
+		mode: modeResult.value,
 		origin: browserContext.value.origin,
 	});
 
@@ -309,50 +329,73 @@ const handleProtectedSubscription = async (
 	action: NewsletterSessionAction,
 	handler: typeof subscribe | typeof unsubscribe,
 ): Promise<Response> => {
-	const browserContext = await getBrowserRequestContext(env, request);
-	if (!browserContext.success) {
-		return createErrorResponse(browserContext.error, 403);
+	const modeResult = getNewsletterMode(request);
+	if (!modeResult.success) {
+		return createErrorResponse(modeResult.error, 400);
+	}
+
+	const originContext = getBrowserOriginContext(request);
+	if (!originContext.success) {
+		return createErrorResponse(originContext.error, 403);
 	}
 
 	const parsedRequest = await parseRequest(request, subscriptionSchema);
 	if (!parsedRequest.success) {
-		return createParseRequestErrorResponse(parsedRequest.error, browserContext.value.corsHeaders);
+		return createParseRequestErrorResponse(parsedRequest.error, originContext.value.corsHeaders);
 	}
 
-	if (browserContext.value.hostname !== parsedRequest.value.body.hostname.toLowerCase()) {
-		return createErrorResponse('INVALID_HOSTNAME', 403, browserContext.value.corsHeaders);
+	if (originContext.value.hostname !== parsedRequest.value.body.hostname.toLowerCase()) {
+		return createErrorResponse('INVALID_HOSTNAME', 403, originContext.value.corsHeaders);
 	}
 
 	const rateLimitResponse = await applyBrowserRateLimit(
 		env.SUBMIT_RATE_LIMIT,
 		request,
-		browserContext.value.hostname,
-		browserContext.value.corsHeaders,
+		originContext.value.hostname,
+		originContext.value.corsHeaders,
 	);
 	if (rateLimitResponse) {
 		return rateLimitResponse;
 	}
 
+	if (modeResult.value !== NEWSLETTER_MODE_DEMO) {
+		const hostnameConfig = await getKnownHostnameConfig(env, originContext.value.hostname);
+		if (hostnameConfig === null) {
+			return createErrorResponse('UNKNOWN_HOSTNAME', 403, originContext.value.corsHeaders);
+		}
+	}
+
 	const sessionValidation = await validateNewsletterSession(env, {
 		action,
-		hostname: browserContext.value.hostname,
-		origin: browserContext.value.origin,
+		hostname: originContext.value.hostname,
+		mode: modeResult.value,
+		origin: originContext.value.origin,
 		submitToken: getHeaderValue(request, 'X-Submit-Token'),
 	});
 	if (!sessionValidation.success) {
-		return createErrorResponse(sessionValidation.error, 403, browserContext.value.corsHeaders);
+		return createErrorResponse(sessionValidation.error, 403, originContext.value.corsHeaders);
 	}
 
-	const turnstileResult = await verifyTurnstileToken(env, request, browserContext.value.hostname, parsedRequest.value.body.turnstile_token);
+	const turnstileResult = await verifyTurnstileToken(
+		env,
+		request,
+		originContext.value.hostname,
+		parsedRequest.value.body.turnstile_token,
+		modeResult.value,
+	);
 	if (!turnstileResult.success) {
 		return createErrorResponse(
 			turnstileResult.error,
 			turnstileResult.error === 'TURNSTILE_NOT_CONFIGURED' ? 500 : 403,
-			browserContext.value.corsHeaders,
+			originContext.value.corsHeaders,
 		);
 	}
 
-	return createSubscriptionOutcomeResponse(await handler(env, parsedRequest.value.body), browserContext.value.corsHeaders);
+	if (modeResult.value === NEWSLETTER_MODE_DEMO) {
+		return createValueResponse('SINK_ACCEPTED', originContext.value.corsHeaders);
+	}
+
+	return createSubscriptionOutcomeResponse(await handler(env, parsedRequest.value.body), originContext.value.corsHeaders);
 };
 
 const handleDisabledConfirmationRead = async (request: Request, env: Env): Promise<Response> => {
@@ -398,12 +441,12 @@ const handleDisabledConfirmationWrite = async (request: Request, env: Env): Prom
 };
 
 const handleOptions = async (request: Request, env: Env): Promise<Response> => {
-	const browserContext = await getBrowserRequestContext(env, request);
-	if (!browserContext.success) {
-		return createErrorResponse(browserContext.error, 403);
+	const originContext = getBrowserOriginContext(request);
+	if (!originContext.success) {
+		return createErrorResponse(originContext.error, 403);
 	}
 
-	return createOptionsResponse(browserContext.value.corsHeaders);
+	return createOptionsResponse(originContext.value.corsHeaders);
 };
 
 const handleApiSubscribersList = async (request: Request, env: Env): Promise<Response> => {
@@ -470,13 +513,21 @@ const handleApiSubscriberDelete = async (request: Request, env: Env, id: string)
 };
 
 const handleNewslettersTemplateRead = async (request: Request, env: Env, name: string): Promise<Response> => {
+	if (!isValidTemplateName(name)) {
+		return createErrorResponse('INVALID_TEMPLATE_NAME', 400);
+	}
+
+	const publicTemplate = await getPublicTemplate(env, name);
+	if (publicTemplate !== null) {
+		return createValueResponse({
+			markup: publicTemplate.markup,
+			name: publicTemplate.name,
+		});
+	}
+
 	const browserContext = await getBrowserRequestContext(env, request);
 	if (!browserContext.success) {
 		return createErrorResponse(browserContext.error, 403);
-	}
-
-	if (!isValidTemplateName(name)) {
-		return createErrorResponse('INVALID_TEMPLATE_NAME', 400, browserContext.value.corsHeaders);
 	}
 
 	const template = await findTemplateVisibleToHostname(env, {

@@ -24,17 +24,6 @@ beforeEach(() => {
 });
 
 describe('subscribe', () => {
-	it('sinks localhost subscriptions without writing them', async () => {
-		const result = await subscribe(env, {
-			email: 'person@example.com',
-			hostname: 'localhost',
-			list_name: 'weekly',
-		});
-
-		expect(result).toEqual({ code: 'SINK_ACCEPTED' });
-		expect(subscriptionRecords.insertSubscriptionRecord).not.toHaveBeenCalled();
-	});
-
 	it('does not sink real mailbox-provider email domains', async () => {
 		vi.mocked(crypto.generateId).mockReturnValue('gmail-id');
 
@@ -140,18 +129,6 @@ describe('subscribe', () => {
 });
 
 describe('unsubscribe', () => {
-	it('sinks localhost unsubscribe requests without reading subscriptions', async () => {
-		const result = await unsubscribe(env, {
-			email: 'person@example.com',
-			hostname: '127.0.0.1',
-			list_name: 'weekly',
-		});
-
-		expect(result).toEqual({ code: 'SINK_ACCEPTED' });
-		expect(subscriptionRecords.getSubscriptionRecordByUniqueValues).not.toHaveBeenCalled();
-		expect(subscriptionRecords.setSubscriptionRecordUnsubscribedAt).not.toHaveBeenCalled();
-	});
-
 	it('returns NOT_FOUND when the record does not exist', async () => {
 		vi.mocked(subscriptionRecords.getSubscriptionRecordByUniqueValues).mockResolvedValue(null);
 

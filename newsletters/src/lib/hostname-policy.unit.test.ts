@@ -5,21 +5,7 @@ import {
 	getEmailHostname,
 	isAcceptedTurnstileHostname,
 	isAutomaticSinkEmailHostname,
-	isAutomaticSinkSiteHostname,
-	isLocalDevelopmentHostname,
 } from './hostname-policy';
-
-describe('isLocalDevelopmentHostname', () => {
-	it('accepts localhost-style development hostnames', () => {
-		expect(isLocalDevelopmentHostname('localhost')).toBe(true);
-		expect(isLocalDevelopmentHostname('127.0.0.1')).toBe(true);
-		expect(isLocalDevelopmentHostname('LOCALHOST')).toBe(true);
-	});
-
-	it('rejects normal hostnames', () => {
-		expect(isLocalDevelopmentHostname('softwarepatterns.com')).toBe(false);
-	});
-});
 
 describe('getEmailHostname', () => {
 	it('returns the normalized email domain', () => {
@@ -28,17 +14,6 @@ describe('getEmailHostname', () => {
 
 	it('fails fast on invalid email strings', () => {
 		expect(() => getEmailHostname('example.com')).toThrow(/Invalid email address/);
-	});
-});
-
-describe('isAutomaticSinkSiteHostname', () => {
-	it('treats local development hostnames as sinks', () => {
-		expect(isAutomaticSinkSiteHostname('localhost')).toBe(true);
-		expect(isAutomaticSinkSiteHostname('127.0.0.1')).toBe(true);
-	});
-
-	it('does not sink normal website hostnames', () => {
-		expect(isAutomaticSinkSiteHostname('softwarepatterns.com')).toBe(false);
 	});
 });
 
@@ -72,13 +47,7 @@ describe('turnstile test constants', () => {
 });
 
 describe('isAcceptedTurnstileHostname', () => {
-	it('accepts Cloudflare test hostnames for local development', () => {
-		expect(isAcceptedTurnstileHostname('localhost', 'example.com')).toBe(true);
-		expect(isAcceptedTurnstileHostname('127.0.0.1', 'localhost')).toBe(true);
-		expect(isAcceptedTurnstileHostname('127.0.0.1', '127.0.0.1')).toBe(true);
-	});
-
-	it('requires an exact hostname match for non-local hostnames', () => {
+	it('requires an exact hostname match', () => {
 		expect(isAcceptedTurnstileHostname('softwarepatterns.com', 'softwarepatterns.com')).toBe(true);
 		expect(isAcceptedTurnstileHostname('softwarepatterns.com', 'localhost')).toBe(false);
 		expect(isAcceptedTurnstileHostname('softwarepatterns.com', 'example.com')).toBe(false);

@@ -8,7 +8,7 @@ import {
 	setSubscriptionRecordUnsubscribedAt,
 } from '../db/subscription-records';
 import { generateId } from '../lib/crypto';
-import { getEmailHostname, isAutomaticSinkEmailHostname, isAutomaticSinkSiteHostname } from '../lib/hostname-policy';
+import { getEmailHostname, isAutomaticSinkEmailHostname } from '../lib/hostname-policy';
 import { logError } from '../lib/log';
 import { Err, NotImplemented, OK, Result } from '../lib/results';
 import { consumeAuthToken } from './subscription-tokens';
@@ -31,7 +31,7 @@ export type SubscribeOutcome =
 
 export const subscribe = async (env: Env, data: SubscribeOptions): Promise<SubscribeOutcome> => {
 	const emailHostname = getEmailHostname(data.email);
-	if (isAutomaticSinkSiteHostname(data.hostname) || isAutomaticSinkEmailHostname(emailHostname)) {
+	if (isAutomaticSinkEmailHostname(emailHostname)) {
 		return { code: 'SINK_ACCEPTED' };
 	}
 
@@ -86,7 +86,7 @@ export type UnsubscribeOutcome =
 
 export const unsubscribe = async (env: Env, data: UnsubscribeOptions): Promise<UnsubscribeOutcome> => {
 	const emailHostname = getEmailHostname(data.email);
-	if (isAutomaticSinkSiteHostname(data.hostname) || isAutomaticSinkEmailHostname(emailHostname)) {
+	if (isAutomaticSinkEmailHostname(emailHostname)) {
 		return { code: 'SINK_ACCEPTED' };
 	}
 

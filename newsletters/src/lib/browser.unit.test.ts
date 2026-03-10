@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Env } from '../common';
-import { createCorsHeaders, getBrowserRequestContext, getOriginUrl } from './browser';
+import { applyOriginCorsHeaders, createCorsHeaders, getBrowserRequestContext, getOriginUrl } from './browser';
 import * as hostnameConfigs from '../db/hostname-config-records';
 
 vi.mock('../db/hostname-config-records', () => ({
@@ -45,8 +45,25 @@ describe('createCorsHeaders', () => {
 		const headers = createCorsHeaders('https://example.com');
 
 		expect(headers.get('Access-Control-Allow-Origin')).toBe('https://example.com');
+		expect(headers.get('Access-Control-Allow-Headers')).toMatch(/Authorization/);
 		expect(headers.get('Access-Control-Allow-Headers')).toMatch(/X-Submit-Token/);
+		expect(headers.get('Access-Control-Allow-Methods')).toMatch(/PATCH/);
+		expect(headers.get('Access-Control-Allow-Methods')).toMatch(/DELETE/);
 		expect(headers.get('Vary')).toBe('Origin');
+	});
+});
+
+describe('applyOriginCorsHeaders', () => {
+	it('writes reflected cors headers onto an existing response header bag', () => {
+		const headers = new Headers({
+			'Content-Type': 'application/json',
+		});
+
+		applyOriginCorsHeaders(headers, 'https://example.com');
+
+		expect(headers.get('Access-Control-Allow-Origin')).toBe('https://example.com');
+		expect(headers.get('Access-Control-Allow-Headers')).toMatch(/Authorization/);
+		expect(headers.get('Content-Type')).toBe('application/json');
 	});
 });
 
@@ -108,33 +125,6 @@ describe('getBrowserRequestContext', () => {
 		expect(result).toEqual({
 			success: false,
 			error: 'UNKNOWN_HOSTNAME',
-		});
-	});
-
-	it('keeps requiring a real row for localhost', async () => {
-		vi.mocked(hostnameConfigs.getHostnameConfigByHostname).mockResolvedValue({
-			hostname: 'localhost',
-			jwks_url: null,
-			turnstile_site_key: null,
-		});
-
-		const result = await getBrowserRequestContext(
-			env,
-			new Request('https://service.example/newsletters', { headers: { Origin: 'http://localhost:4173' } }),
-		);
-
-		expect(result).toEqual({
-			success: true,
-			value: {
-				corsHeaders: expect.any(Headers),
-				hostname: 'localhost',
-				hostnameConfig: {
-					hostname: 'localhost',
-					jwks_url: null,
-					turnstile_site_key: null,
-				},
-				origin: 'http://localhost:4173',
-			},
 		});
 	});
 });

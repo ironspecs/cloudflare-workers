@@ -2,6 +2,7 @@ import type { Env } from '../common';
 import { NEWSLETTER_SESSION_TTL_SECONDS, isTimeExpired } from '../common';
 import { fromBase64Url, hmacSha256Base64Url, timingSafeEqualStrings, toBase64Url } from './crypto';
 import { getActiveHostnameConfigKek } from './hostname-config-secrets';
+import type { NewsletterMode } from './newsletter-mode';
 import { Err, OK, type Result } from './results';
 
 export const enum NewsletterSessionAction {
@@ -14,6 +15,7 @@ export type NewsletterSubmitTokenPayload = {
 	created_at: number;
 	expires_at: number;
 	hostname: string;
+	mode: NewsletterMode;
 	origin: string;
 	v: 1;
 };
@@ -33,6 +35,7 @@ const isNewsletterSubmitTokenPayload = (value: unknown): value is NewsletterSubm
 		typeof payload.created_at === 'number' &&
 		typeof payload.expires_at === 'number' &&
 		typeof payload.hostname === 'string' &&
+		(payload.mode === 'demo' || payload.mode === 'live') &&
 		typeof payload.origin === 'string'
 	);
 };
@@ -71,9 +74,14 @@ const parseSubmitToken = (
 
 const isMatchingSubmitTokenPayload = (
 	payload: NewsletterSubmitTokenPayload,
-	options: Pick<NewsletterSubmitTokenPayload, 'action' | 'hostname' | 'origin'>,
+	options: Pick<NewsletterSubmitTokenPayload, 'action' | 'hostname' | 'mode' | 'origin'>,
 ): boolean => {
-	return payload.action === options.action && payload.hostname === options.hostname && payload.origin === options.origin;
+	return (
+		payload.action === options.action &&
+		payload.hostname === options.hostname &&
+		payload.mode === options.mode &&
+		payload.origin === options.origin
+	);
 };
 
 export const createNewsletterSession = async (
@@ -81,6 +89,7 @@ export const createNewsletterSession = async (
 	options: {
 		action: NewsletterSessionAction;
 		hostname: string;
+		mode: NewsletterMode;
 		origin: string;
 	},
 ): Promise<{ expiresAt: number; submitToken: string }> => {
@@ -94,6 +103,7 @@ export const createNewsletterSession = async (
 			created_at: createdAt,
 			expires_at: expiresAt,
 			hostname: options.hostname,
+			mode: options.mode,
 			origin: options.origin,
 			v: 1,
 		}),
@@ -105,6 +115,7 @@ export const validateNewsletterSession = async (
 	options: {
 		action: NewsletterSessionAction;
 		hostname: string;
+		mode: NewsletterMode;
 		origin: string;
 		submitToken: string;
 	},

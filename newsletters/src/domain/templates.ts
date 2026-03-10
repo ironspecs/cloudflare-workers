@@ -131,3 +131,12 @@ export const findTemplateVisibleToHostname = async (
 ) => {
 	return findAccessibleTemplateByHostname(env.NewslettersD1, options);
 };
+
+export const getPublicTemplate = async (env: Env, name: string) => {
+	const template = await findTemplateByName(env.NewslettersD1, name);
+	if (template === null || template.hostname !== null) {
+		return null;
+	}
+
+	return template;
+};

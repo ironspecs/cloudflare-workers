@@ -53,12 +53,6 @@ describe('getTurnstileSiteKey', () => {
 
 		await expect(getTurnstileSiteKey(env, 'unknown.example')).resolves.toBeNull();
 	});
-
-	it('returns the Cloudflare test site key for local development hostnames', async () => {
-		await expect(getTurnstileSiteKey(env, 'localhost')).resolves.toBe(TURNSTILE_TEST_SITE_KEY);
-		await expect(getTurnstileSiteKey(env, '127.0.0.1')).resolves.toBe(TURNSTILE_TEST_SITE_KEY);
-		expect(hostnameConfigRecords.getHostnameConfigByHostname).not.toHaveBeenCalled();
-	});
 });
 
 describe('verifyTurnstileToken', () => {
@@ -148,7 +142,7 @@ describe('verifyTurnstileToken', () => {
 		});
 	});
 
-	it('uses the Cloudflare test secret for localhost without reading D1 secrets', async () => {
+	it('uses the Cloudflare test secret for demo mode without reading D1 secrets', async () => {
 		const fetchMock = vi.fn().mockResolvedValue(
 			new Response(JSON.stringify({ hostname: 'example.com', success: true }), {
 				headers: { 'Content-Type': 'application/json' },
@@ -157,7 +151,13 @@ describe('verifyTurnstileToken', () => {
 		);
 		vi.stubGlobal('fetch', fetchMock);
 
-		const result = await verifyTurnstileToken(env, new Request('https://service.example/subscribe'), 'localhost', TURNSTILE_TEST_TOKEN);
+		const result = await verifyTurnstileToken(
+			env,
+			new Request('https://service.example/subscribe'),
+			'local.test',
+			TURNSTILE_TEST_TOKEN,
+			'demo',
+		);
 
 		expect(result).toEqual({
 			success: true,
@@ -172,5 +172,35 @@ describe('verifyTurnstileToken', () => {
 				method: 'POST',
 			}),
 		);
+	});
+
+	it('uses the Cloudflare test site key for demo mode without reading D1 config', async () => {
+		await expect(getTurnstileSiteKey(env, 'softwarepatterns.com', 'demo')).resolves.toBe(TURNSTILE_TEST_SITE_KEY);
+		expect(hostnameConfigRecords.getHostnameConfigByHostname).not.toHaveBeenCalled();
+	});
+
+	it('accepts demo-mode verification without hostname matching', async () => {
+		const fetchMock = vi.fn().mockResolvedValue(
+			new Response(JSON.stringify({ hostname: 'example.com', success: true }), {
+				headers: { 'Content-Type': 'application/json' },
+				status: 200,
+			}),
+		);
+		vi.stubGlobal('fetch', fetchMock);
+
+		const result = await verifyTurnstileToken(
+			env,
+			new Request('https://service.example/subscribe'),
+			'local.test',
+			TURNSTILE_TEST_TOKEN,
+			'demo',
+		);
+
+		expect(result).toEqual({
+			success: true,
+			value: 'TURNSTILE_OK',
+		});
+		expect(hostnameConfigSecretRecords.getHostnameConfigSecretsByHostname).not.toHaveBeenCalled();
+		expect(hostnameConfigSecrets.decryptHostnameConfigSecrets).not.toHaveBeenCalled();
 	});
 });

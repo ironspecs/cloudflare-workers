@@ -238,7 +238,20 @@
 				}
 			}
 		</style>
-		<script src="/newsletters.js" defer></script>
+		<script>
+			!(function (w, d, u) {
+				if (w.Newsletters) return;
+				function open(o) {
+					open.q.push(o);
+				}
+				open.q = [];
+				w.Newsletters = { open: open };
+				var s = d.createElement('script');
+				s.src = u;
+				s.defer = true;
+				d.head.appendChild(s);
+			})(window, document, '/newsletters.js?template=starter&mode=demo');
+		</script>
 	</head>
 	<body>
 		<main>
@@ -255,8 +268,8 @@
 						<a class="action-button secondary-button" href="#template-mode">See Template Mode</a>
 					</div>
 					<div class="note">
-						When served from <code>localhost</code> or <code>127.0.0.1</code>, the worker still validates the full flow but returns
-						<code>SINK_ACCEPTED</code> instead of storing the address.
+						This page uses the tiny <code>open.q</code> bootstrap stub with <code>/newsletters.js?template=starter&amp;mode=demo</code>, so
+						<code>open()</code> is available immediately and demo submissions return <code>SINK_ACCEPTED</code>.
 					</div>
 				</div>
 				<aside class="card details">
@@ -287,7 +300,7 @@
 			<section class="grid">
 				<div class="card code-panel">
 					<h2>Option A: Browser SDK</h2>
-					<pre><code>&lt;script src="/newsletters.js" defer&gt;&lt;/script&gt;
+					<pre><code>&lt;script src="/newsletters.js?mode=demo" defer&gt;&lt;/script&gt;
 &lt;div id="turnstile"&gt;&lt;/div&gt;
 &lt;script&gt;
 const session = await window.Newsletters.createSession({ listName: 'weekly' });
@@ -323,10 +336,18 @@ const result = await window.Newsletters.subscribe({
 				</div>
 				<div class="card code-panel">
 					<h2 id="template-mode">Option B: Script-Selected Template</h2>
-					<pre><code>&lt;script
-  src="/newsletters.js?template=starter"
-  defer
-&gt;&lt;/script&gt;
+					<pre><code>&lt;script&gt;
+!function(w,d,u){
+  if(w.Newsletters)return;
+  function open(o){open.q.push(o)}
+  open.q=[];
+  w.Newsletters={open:open};
+  var s=d.createElement('script');
+  s.src=u;
+  s.defer=true;
+  d.head.appendChild(s);
+}(window,document,'/newsletters.js?template=starter&amp;mode=demo');
+&lt;/script&gt;
 &lt;script&gt;
 document.getElementById('newsletter-signup').addEventListener('click', () =&gt; {
   window.Newsletters.open({ listName: 'weekly' });
@@ -365,27 +386,15 @@ document.getElementById('newsletter-signup').addEventListener('click', () =&gt; 
 				sdkErrorElement.textContent = value;
 			};
 
-			const openNewsletter = async (options) => {
-				if (!window.Newsletters || typeof window.Newsletters.open !== 'function') {
-					showResult({ error: 'NEWSLETTERS_SCRIPT_NOT_READY', success: false });
-					return;
-				}
-
-				try {
-					showResult(await window.Newsletters.open(options));
-				} catch (error) {
-					showResult({
-						error: error instanceof Error ? error.message : String(error),
-						success: false,
-					});
-				}
+			const openNewsletter = (options) => {
+				window.Newsletters.open(options);
+				showResult({
+					success: true,
+					value: 'OPEN_REQUESTED',
+				});
 			};
 
 			const ensureSdkSession = async () => {
-				if (!window.Newsletters || typeof window.Newsletters.createSession !== 'function') {
-					throw new Error('NEWSLETTERS_SCRIPT_NOT_READY');
-				}
-
 				if (sdkSession && sdkSession.expiresAt > Date.now() + 5000) {
 					return sdkSession;
 				}

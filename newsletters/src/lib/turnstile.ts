@@ -2,12 +2,8 @@ import type { Env } from '../common';
 import { getHostnameConfigByHostname } from '../db/hostname-config-records';
 import { getHostnameConfigSecretsByHostname } from '../db/hostname-config-secret-records';
 import { decryptHostnameConfigSecrets } from './hostname-config-secrets';
-import {
-	TURNSTILE_TEST_SECRET_KEY,
-	TURNSTILE_TEST_SITE_KEY,
-	isAcceptedTurnstileHostname,
-	isLocalDevelopmentHostname,
-} from './hostname-policy';
+import { TURNSTILE_TEST_SECRET_KEY, TURNSTILE_TEST_SITE_KEY, isAcceptedTurnstileHostname } from './hostname-policy';
+import { NEWSLETTER_MODE_DEMO, type NewsletterMode } from './newsletter-mode';
 import { Err, OK, type Result } from './results';
 
 type TurnstileVerifyResponse = {
@@ -18,8 +14,8 @@ type TurnstileVerifyResponse = {
 
 export const TURNSTILE_TEST_TOKEN = 'XXXX.DUMMY.TOKEN.XXXX';
 
-const getTurnstileSecretKey = async (env: Env, hostname: string) => {
-	if (isLocalDevelopmentHostname(hostname)) {
+const getTurnstileSecretKey = async (env: Env, hostname: string, mode: NewsletterMode) => {
+	if (mode === NEWSLETTER_MODE_DEMO) {
 		return TURNSTILE_TEST_SECRET_KEY;
 	}
 
@@ -32,8 +28,8 @@ const getTurnstileSecretKey = async (env: Env, hostname: string) => {
 	return secrets.turnstile_secret_key;
 };
 
-export const getTurnstileSiteKey = async (env: Env, hostname: string): Promise<string | null> => {
-	if (isLocalDevelopmentHostname(hostname)) {
+export const getTurnstileSiteKey = async (env: Env, hostname: string, mode: NewsletterMode = 'live'): Promise<string | null> => {
+	if (mode === NEWSLETTER_MODE_DEMO) {
 		return TURNSTILE_TEST_SITE_KEY;
 	}
 
@@ -46,8 +42,9 @@ export const verifyTurnstileToken = async (
 	request: Request,
 	hostname: string,
 	token: string,
+	mode: NewsletterMode = 'live',
 ): Promise<Result<'TURNSTILE_OK', 'INVALID_TURNSTILE' | 'TURNSTILE_NOT_CONFIGURED'>> => {
-	const secretKey = await getTurnstileSecretKey(env, hostname);
+	const secretKey = await getTurnstileSecretKey(env, hostname, mode);
 	if (!secretKey) {
 		return Err('TURNSTILE_NOT_CONFIGURED');
 	}
@@ -76,7 +73,7 @@ export const verifyTurnstileToken = async (
 		return Err('INVALID_TURNSTILE');
 	}
 
-	if (payload.hostname && !isAcceptedTurnstileHostname(hostname, payload.hostname)) {
+	if (mode !== NEWSLETTER_MODE_DEMO && payload.hostname && !isAcceptedTurnstileHostname(hostname, payload.hostname)) {
 		return Err('INVALID_TURNSTILE');
 	}
 

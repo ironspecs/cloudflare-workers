@@ -14,7 +14,6 @@ const ENVELOPE_VERSION = 'v1';
 const IV_LENGTH = 12;
 const workerName = 'newsletters';
 const d1Name = 'newsletters';
-const reservedSinkHostnames = ['127.0.0.1', 'localhost'];
 const publicTemplates = [
 	{
 		name: 'daisyui',
@@ -172,12 +171,6 @@ const buildHostnameSecretsSql = async (config) => {
 		);
 		statements.push(
 			`INSERT INTO hostname_config_secrets (hostname, dek_kek_id, dek_wrapped, turnstile_secret_key_ciphertext) VALUES (${sqlString(hostname)}, ${sqlString(config.keks.active_id)}, ${sqlString(dekWrapped)}, ${sqlString(turnstileSecretCiphertext)}) ON CONFLICT(hostname) DO UPDATE SET dek_kek_id = excluded.dek_kek_id, dek_wrapped = excluded.dek_wrapped, turnstile_secret_key_ciphertext = excluded.turnstile_secret_key_ciphertext;`,
-		);
-	}
-
-	for (const hostname of reservedSinkHostnames) {
-		statements.push(
-			`INSERT INTO hostname_config (hostname, jwks_url, turnstile_site_key) VALUES (${sqlString(hostname)}, NULL, NULL) ON CONFLICT(hostname) DO NOTHING;`,
 		);
 	}
 

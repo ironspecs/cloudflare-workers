@@ -21,12 +21,14 @@ describe('newsletter sessions', () => {
 		const createdSession = await createNewsletterSession(env, {
 			action: NewsletterSessionAction.Subscribe,
 			hostname: 'example.com',
+			mode: 'live',
 			origin: 'https://example.com',
 		});
 
 		const result = await validateNewsletterSession(env, {
 			action: NewsletterSessionAction.Subscribe,
 			hostname: 'example.com',
+			mode: 'live',
 			origin: 'https://example.com',
 			submitToken: createdSession.submitToken,
 		});
@@ -39,6 +41,7 @@ describe('newsletter sessions', () => {
 		expect(result.value).toMatchObject({
 			action: NewsletterSessionAction.Subscribe,
 			hostname: 'example.com',
+			mode: 'live',
 			origin: 'https://example.com',
 			v: 1,
 		});
@@ -48,12 +51,14 @@ describe('newsletter sessions', () => {
 		const createdSession = await createNewsletterSession(env, {
 			action: NewsletterSessionAction.Subscribe,
 			hostname: 'example.com',
+			mode: 'live',
 			origin: 'https://example.com',
 		});
 
 		const result = await validateNewsletterSession(env, {
 			action: NewsletterSessionAction.Subscribe,
 			hostname: 'example.com',
+			mode: 'live',
 			origin: 'https://example.com',
 			submitToken: `${createdSession.submitToken}broken`,
 		});
@@ -71,6 +76,7 @@ describe('newsletter sessions', () => {
 		const createdSession = await createNewsletterSession(env, {
 			action: NewsletterSessionAction.Unsubscribe,
 			hostname: 'example.com',
+			mode: 'live',
 			origin: 'https://example.com',
 		});
 
@@ -79,6 +85,7 @@ describe('newsletter sessions', () => {
 		const result = await validateNewsletterSession(env, {
 			action: NewsletterSessionAction.Unsubscribe,
 			hostname: 'example.com',
+			mode: 'live',
 			origin: 'https://example.com',
 			submitToken: createdSession.submitToken,
 		});
@@ -93,12 +100,14 @@ describe('newsletter sessions', () => {
 		const createdSession = await createNewsletterSession(env, {
 			action: NewsletterSessionAction.Subscribe,
 			hostname: 'example.com',
+			mode: 'live',
 			origin: 'https://example.com',
 		});
 
 		const result = await validateNewsletterSession(env, {
 			action: NewsletterSessionAction.Subscribe,
 			hostname: 'softwarepatterns.com',
+			mode: 'live',
 			origin: 'https://example.com',
 			submitToken: createdSession.submitToken,
 		});
@@ -113,6 +122,7 @@ describe('newsletter sessions', () => {
 		const createdSession = await createNewsletterSession(env, {
 			action: NewsletterSessionAction.Subscribe,
 			hostname: 'example.com',
+			mode: 'live',
 			origin: 'https://example.com',
 		});
 
@@ -120,6 +130,7 @@ describe('newsletter sessions', () => {
 			validateNewsletterSession(env, {
 				action: NewsletterSessionAction.Subscribe,
 				hostname: 'example.com',
+				mode: 'live',
 				origin: 'https://example.com',
 				submitToken: createdSession.submitToken,
 			}),
@@ -128,9 +139,32 @@ describe('newsletter sessions', () => {
 			validateNewsletterSession(env, {
 				action: NewsletterSessionAction.Subscribe,
 				hostname: 'example.com',
+				mode: 'live',
 				origin: 'https://example.com',
 				submitToken: createdSession.submitToken,
 			}),
 		).resolves.toMatchObject({ success: true });
+	});
+
+	it('rejects mode mismatches', async () => {
+		const createdSession = await createNewsletterSession(env, {
+			action: NewsletterSessionAction.Subscribe,
+			hostname: 'example.com',
+			mode: 'demo',
+			origin: 'https://example.com',
+		});
+
+		const result = await validateNewsletterSession(env, {
+			action: NewsletterSessionAction.Subscribe,
+			hostname: 'example.com',
+			mode: 'live',
+			origin: 'https://example.com',
+			submitToken: createdSession.submitToken,
+		});
+
+		expect(result).toEqual({
+			success: false,
+			error: 'INVALID_SESSION',
+		});
 	});
 });

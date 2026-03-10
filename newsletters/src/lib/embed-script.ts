@@ -19,8 +19,16 @@ export const createEmbedScript = () => `
 	}
 
 	const scriptUrl = new URL(scriptSource);
+	const requestedMode = scriptUrl.searchParams.get('mode') === 'demo' ? 'demo' : 'live';
 	const requestedTemplateName = scriptUrl.searchParams.get('template') || '';
 	const serviceOrigin = scriptUrl.origin;
+	const requestQuery = requestedMode === 'demo' ? '?mode=demo' : '';
+	const queuedOpenCalls =
+		window.Newsletters &&
+		typeof window.Newsletters.open === 'function' &&
+		Array.isArray(window.Newsletters.open.q)
+			? window.Newsletters.open.q.slice()
+			: [];
 
 	const ensureTurnstile = () => {
 		if (window.turnstile) {
@@ -206,7 +214,7 @@ export const createEmbedScript = () => `
 	};
 
 	const requestSession = async ({ action = 'subscribe', listName = '' } = {}) => {
-		const response = await fetch(\`\${serviceOrigin}/newsletters/session\`, {
+		const response = await fetch(\`\${serviceOrigin}/newsletters/session\${requestQuery}\`, {
 			body: JSON.stringify({
 				action,
 				list_name: listName,
@@ -291,7 +299,8 @@ export const createEmbedScript = () => `
 			throw createError('TURNSTILE_NOT_READY');
 		}
 
-		const response = await fetch(\`\${serviceOrigin}/subscribe\`, {
+		const subscribeUrl = \`\${serviceOrigin}/subscribe\${requestQuery}\`;
+		const response = await fetch(subscribeUrl, {
 			body: JSON.stringify({
 				email,
 				hostname,
@@ -331,10 +340,9 @@ export const createEmbedScript = () => `
 		};
 	};
 
-	const toFailureResult = (error) => ({
-		error: error instanceof Error ? error.message : String(error),
-		success: false,
-	});
+	const reportHighLevelError = (error) => {
+		console.error('[Newsletters]', error instanceof Error ? error.message : String(error));
+	};
 
 	const openDialog = async ({ listName = '', personName = '' } = {}) => {
 		const [session, templateMarkup] = await Promise.all([
@@ -379,7 +387,7 @@ export const createEmbedScript = () => `
 
 			const onClose = () => {
 				cleanup();
-				resolve({ error: 'DIALOG_CLOSED', success: false });
+				resolve(undefined);
 			};
 
 			const onSubmit = async (event) => {
@@ -407,10 +415,10 @@ export const createEmbedScript = () => `
 					}
 
 					cleanup();
-					resolve(payload);
+					resolve(undefined);
 				} catch (submitError) {
-					cleanup();
-					resolve(toFailureResult(submitError));
+					view.errorElement.textContent = submitError instanceof Error ? submitError.message : String(submitError);
+					turnstileControl.reset();
 				}
 			};
 
@@ -420,16 +428,12 @@ export const createEmbedScript = () => `
 		});
 	};
 
-	window.Newsletters = {
+	const realApi = {
 		createSession: async ({ action = 'subscribe', listName = '' } = {}) => {
 			return requestSession({ action, listName });
 		},
-		open: async ({ listName = '', personName = '' } = {}) => {
-			try {
-				return await openDialog({ listName, personName });
-			} catch (error) {
-				return toFailureResult(error);
-			}
+		open: ({ listName = '', personName = '' } = {}) => {
+			void openDialog({ listName, personName }).catch(reportHighLevelError);
 		},
 		renderTurnstile: async (container, { siteKey }) => {
 			return renderTurnstile(container, { siteKey });
@@ -445,5 +449,15 @@ export const createEmbedScript = () => `
 			});
 		},
 	};
+
+	window.Newsletters = realApi;
+
+	if (queuedOpenCalls.length > 0) {
+		Promise.resolve().then(() => {
+			for (const options of queuedOpenCalls) {
+				realApi.open(options);
+			}
+		});
+	}
 })();
 `;
