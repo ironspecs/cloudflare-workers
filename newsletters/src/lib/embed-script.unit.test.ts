@@ -25,6 +25,8 @@ describe('createEmbedScript', () => {
 		expect(source).toContain("searchParams.get('mode') === 'demo'");
 		expect(source).toContain('X-Submit-Token');
 		expect(source).toContain("searchParams.get('template')");
+		expect(source).toContain('closeTriggers');
+		expect(source).toContain('querySelectorAll(selector)');
 		expect(source).toContain('Array.isArray(window.Newsletters.open.q)');
 		expect(source).toContain('queuedOpenCalls');
 		expect(source).toContain('realApi.open(options)');

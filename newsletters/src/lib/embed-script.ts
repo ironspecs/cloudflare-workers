@@ -70,8 +70,40 @@ export const createEmbedScript = () => `
 	const createDialogShell = () => {
 		const dialog = document.createElement('dialog');
 		dialog.dataset.newslettersManaged = 'true';
+		dialog.setAttribute(
+			'style',
+			[
+				'padding:0',
+				'border:0',
+				'background:transparent',
+				'max-width:none',
+				'width:100%',
+				'height:100%',
+				'margin:0',
+			].join(';'),
+		);
 		document.body.appendChild(dialog);
-		return dialog;
+
+		const shell = document.createElement('div');
+		shell.setAttribute(
+			'style',
+			[
+				'box-sizing:border-box',
+				'display:flex',
+				'align-items:center',
+				'justify-content:center',
+				'width:100%',
+				'height:100%',
+				'padding:24px',
+				'background:rgba(15,23,42,0.48)',
+			].join(';'),
+		);
+		dialog.appendChild(shell);
+
+		return {
+			dialog,
+			shell,
+		};
 	};
 
 	const destroyDialogShell = (dialog) => {
@@ -80,6 +112,23 @@ export const createEmbedScript = () => `
 		}
 
 		dialog.remove();
+	};
+
+	const lockPageScroll = () => {
+		const body = document.body;
+		const previousOverflow = body.style.overflow;
+		const previousPaddingRight = body.style.paddingRight;
+		const scrollbarWidth = Math.max(window.innerWidth - document.documentElement.clientWidth, 0);
+
+		body.style.overflow = 'hidden';
+		if (scrollbarWidth > 0) {
+			body.style.paddingRight = String(scrollbarWidth) + 'px';
+		}
+
+		return () => {
+			body.style.overflow = previousOverflow;
+			body.style.paddingRight = previousPaddingRight;
+		};
 	};
 
 	const getSingleElement = (root, selector, errorCode, required = true) => {
@@ -98,6 +147,8 @@ export const createEmbedScript = () => `
 
 		return matches[0];
 	};
+
+	const getElements = (root, selector) => Array.from(root.querySelectorAll(selector)).filter((element) => element instanceof HTMLElement);
 
 	const assertTextInput = (element, errorCode, required = true) => {
 		if (element === null) {
@@ -126,17 +177,35 @@ export const createEmbedScript = () => `
 	const createDefaultDialogContent = () => {
 		const wrapper = document.createElement('div');
 		wrapper.innerHTML = \`
-			<form method="dialog" style="display:flex;flex-direction:column;gap:12px;min-width:320px;padding:24px;">
-				<label>
-					Email
-					<input data-newsletters-email type="email" required style="display:block;width:100%;margin-top:8px;" />
+			<form
+				method="dialog"
+				style="display:flex;flex-direction:column;gap:16px;width:min(100%,420px);padding:24px;border:1px solid #d1d5db;border-radius:20px;background:#ffffff;box-shadow:0 24px 64px rgba(15,23,42,0.18);"
+			>
+				<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+					<h2 style="margin:0;font-size:1.25rem;line-height:1.75rem;">Join the newsletter</h2>
+					<button type="button" data-newsletters-close style="border:0;background:transparent;font:inherit;cursor:pointer;">Close</button>
+				</div>
+				<label style="display:flex;flex-direction:column;gap:8px;">
+					<span>Email</span>
+					<input
+						data-newsletters-email
+						type="email"
+						required
+						style="display:block;width:100%;padding:10px 12px;border:1px solid #d1d5db;border-radius:12px;"
+					/>
 				</label>
-				<label>
-					Name
-					<input data-newsletters-person-name type="text" style="display:block;width:100%;margin-top:8px;" />
+				<label style="display:flex;flex-direction:column;gap:8px;">
+					<span>Name</span>
+					<input
+						data-newsletters-person-name
+						type="text"
+						style="display:block;width:100%;padding:10px 12px;border:1px solid #d1d5db;border-radius:12px;"
+					/>
 				</label>
-				<div data-newsletters-turnstile></div>
-				<p data-newsletters-error style="color:#b91c1c;margin:0;"></p>
+				<div style="padding:16px;border:1px solid #e5e7eb;border-radius:16px;background:#f9fafb;">
+					<div data-newsletters-turnstile></div>
+				</div>
+				<p data-newsletters-error style="color:#b91c1c;margin:0;min-height:1.5rem;"></p>
 				<div style="display:flex;gap:8px;justify-content:flex-end;">
 					<button type="button" data-newsletters-close>Close</button>
 					<button type="submit" data-newsletters-submit>Submit</button>
@@ -169,12 +238,12 @@ export const createEmbedScript = () => `
 	};
 
 	const createDialogView = (templateMarkup) => {
-		const dialog = createDialogShell();
+		const { dialog, shell } = createDialogShell();
 		const form = typeof templateMarkup === 'string' && templateMarkup.length > 0 ? createServerTemplateDialogContent(templateMarkup) : createDefaultDialogContent();
-		dialog.appendChild(form);
+		shell.appendChild(form);
 
 		return {
-			closeTrigger: getSingleElement(form, HOOKS.close, 'INVALID_TEMPLATE_CLOSE', false),
+			closeTriggers: getElements(form, HOOKS.close),
 			dialog,
 			emailInput: assertTextInput(getSingleElement(form, HOOKS.email, 'INVALID_TEMPLATE_EMAIL'), 'INVALID_TEMPLATE_EMAIL'),
 			errorElement: assertElement(getSingleElement(form, HOOKS.error, 'INVALID_TEMPLATE_ERROR'), 'INVALID_TEMPLATE_ERROR'),
@@ -184,6 +253,7 @@ export const createEmbedScript = () => `
 				'INVALID_TEMPLATE_PERSON_NAME',
 				false,
 			),
+			shell,
 			submitTrigger: assertElement(getSingleElement(form, HOOKS.submit, 'INVALID_TEMPLATE_SUBMIT'), 'INVALID_TEMPLATE_SUBMIT'),
 			turnstileContainer: assertElement(
 				getSingleElement(form, HOOKS.turnstile, 'INVALID_TEMPLATE_TURNSTILE'),
@@ -361,10 +431,18 @@ export const createEmbedScript = () => `
 			view.personNameInput.value = personName;
 		}
 
-		if (view.closeTrigger instanceof HTMLElement) {
-			view.closeTrigger.addEventListener('click', () => view.dialog.close());
+		const onCloseTriggerClick = () => view.dialog.close();
+		for (const closeTrigger of view.closeTriggers) {
+			closeTrigger.addEventListener('click', onCloseTriggerClick);
 		}
 
+		const unlockScroll = lockPageScroll();
+		const onShellClick = (event) => {
+			if (event.target === view.shell) {
+				view.dialog.close();
+			}
+		};
+		view.shell.addEventListener('click', onShellClick);
 		view.dialog.showModal();
 
 		return new Promise((resolve) => {
@@ -381,7 +459,12 @@ export const createEmbedScript = () => `
 				turnstileControl.remove();
 				view.form.removeEventListener('submit', onSubmit);
 				view.submitTrigger.removeEventListener('click', onSubmitTriggerClick);
+				for (const closeTrigger of view.closeTriggers) {
+					closeTrigger.removeEventListener('click', onCloseTriggerClick);
+				}
+				view.shell.removeEventListener('click', onShellClick);
 				view.dialog.removeEventListener('close', onClose);
+				unlockScroll();
 				destroyDialogShell(view.dialog);
 			};
 
