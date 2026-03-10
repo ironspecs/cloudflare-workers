@@ -4,6 +4,13 @@ compatibility_date = "2023-12-18"
 tsconfig = "tsconfig.wrangler.json"
 compatibility_flags = ["nodejs_compat"]
 
+[observability]
+enabled = true
+
+[observability.logs]
+invocation_logs = true
+head_sampling_rate = 1
+
 [[d1_databases]]
 binding = "NewslettersD1"
 database_name = "newsletters"

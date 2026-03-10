@@ -6,6 +6,7 @@ import { getHostnameConfigByHostname } from './db/hostname-config-records';
 import { subscribe, unsubscribe } from './domain/subscriptions';
 import { getBrowserRequestContext } from './lib/browser';
 import { createEmbedScript } from './lib/embed-script';
+import { logError } from './lib/log';
 import { createNewsletterSession, NewsletterSessionAction, validateNewsletterSession } from './lib/newsletter-sessions';
 import { parseRequest } from './lib/requests';
 import {
@@ -270,20 +271,31 @@ const routes = {
 export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
 		const pathname = new URL(request.url).pathname;
-		const route = routes[pathname];
-		if (route) {
-			const handler = route[request.method.toLowerCase()];
-			if (!handler) {
-				return createMethodNotAllowedResponse();
+
+		try {
+			const route = routes[pathname];
+			if (route) {
+				const handler = route[request.method.toLowerCase()];
+				if (!handler) {
+					return createMethodNotAllowedResponse();
+				}
+
+				return handler(request, env);
 			}
 
-			return handler(request, env);
-		}
+			if (request.method === 'GET' && pathname === '/') {
+				return createHTMLResponse(htmlContent);
+			}
 
-		if (request.method === 'GET' && pathname === '/') {
-			return createHTMLResponse(htmlContent);
+			return createNotFoundResponse();
+		} catch (error: unknown) {
+			logError('newsletter_request_unhandled_error', error, {
+				cf_ray: request.headers.get('cf-ray'),
+				method: request.method,
+				origin: request.headers.get('Origin'),
+				pathname,
+			});
+			return createErrorResponse('INTERNAL_ERROR', 500);
 		}
-
-		return createNotFoundResponse();
 	},
 };

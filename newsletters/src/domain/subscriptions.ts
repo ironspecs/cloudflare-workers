@@ -10,6 +10,7 @@ import {
 import { generateId } from '../lib/crypto';
 import { isUniqueConstraintError } from '../lib/d1';
 import { getEmailHostname, isAutomaticSinkEmailHostname, isAutomaticSinkSiteHostname } from '../lib/hostname-policy';
+import { logError } from '../lib/log';
 import { Err, NotImplemented, OK, Result } from '../lib/results';
 import { consumeAuthToken } from './subscription-tokens';
 
@@ -44,7 +45,11 @@ export const subscribe = async (
 			...data,
 		});
 	} catch (e: unknown) {
-		console.error('Error inserting subscription record', e);
+		logError('newsletter_subscription_insert_failed', e, {
+			hostname: data.hostname,
+			list_name: data.list_name,
+			route: '/subscribe',
+		});
 		if (isErrorWithMessage(e)) {
 			// If the user and hostname combination already exists, we can't subscribe them again.
 			if (isUniqueConstraintError(e)) {
