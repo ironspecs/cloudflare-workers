@@ -1,7 +1,7 @@
 import { safeParseAsync } from 'valibot';
 import { email as validEmail, object, optional, picklist, pipe, string } from 'valibot';
 import type { Env } from './common';
-import htmlContent from './index.html';
+import htmlContent from '../examples/local-embed/index.html';
 import { getHostnameConfigByHostname } from './db/hostname-config-records';
 import { subscribe, unsubscribe } from './domain/subscriptions';
 import { getBrowserRequestContext } from './lib/browser';

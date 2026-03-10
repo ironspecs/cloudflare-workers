@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Newsletters Example</title>
+		<style>
+			:root {
+				--bg: #f5efe6;
+				--panel: #fffaf1;
+				--ink: #1b1a17;
+				--muted: #645f57;
+				--accent: #115e59;
+				--accent-strong: #0f766e;
+				--line: rgba(27, 26, 23, 0.12);
+				--shadow: 0 24px 60px rgba(33, 28, 20, 0.14);
+			}
+
+			* {
+				box-sizing: border-box;
+			}
+
+			body {
+				margin: 0;
+				font-family: 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', Palatino, Georgia, serif;
+				color: var(--ink);
+				background:
+					radial-gradient(circle at top left, rgba(17, 94, 89, 0.14), transparent 30%),
+					radial-gradient(circle at bottom right, rgba(194, 65, 12, 0.1), transparent 32%),
+					linear-gradient(180deg, #fcf8f2 0%, var(--bg) 100%);
+				min-height: 100vh;
+			}
+
+			main {
+				width: min(960px, calc(100vw - 32px));
+				margin: 0 auto;
+				padding: 48px 0 64px;
+			}
+
+			.hero {
+				display: grid;
+				gap: 24px;
+				grid-template-columns: 1.2fr 0.8fr;
+				align-items: stretch;
+			}
+
+			.card {
+				background: color-mix(in srgb, var(--panel) 92%, white 8%);
+				border: 1px solid var(--line);
+				border-radius: 28px;
+				box-shadow: var(--shadow);
+				padding: 32px;
+			}
+
+			.kicker {
+				display: inline-block;
+				padding: 8px 12px;
+				border-radius: 999px;
+				background: rgba(17, 94, 89, 0.1);
+				color: var(--accent);
+				font-size: 0.8rem;
+				font-weight: 700;
+				letter-spacing: 0.08em;
+				text-transform: uppercase;
+			}
+
+			h1 {
+				margin: 16px 0 12px;
+				font-size: clamp(2.6rem, 6vw, 4.8rem);
+				line-height: 0.92;
+				letter-spacing: -0.06em;
+			}
+
+			p {
+				margin: 0;
+				color: var(--muted);
+				font-size: 1.02rem;
+				line-height: 1.6;
+			}
+
+			.actions {
+				display: flex;
+				flex-wrap: wrap;
+				gap: 12px;
+				margin-top: 28px;
+			}
+
+			button {
+				appearance: none;
+				border: 0;
+				border-radius: 999px;
+				padding: 14px 20px;
+				cursor: pointer;
+				font: inherit;
+				font-weight: 700;
+				transition:
+					transform 180ms ease,
+					box-shadow 180ms ease,
+					background 180ms ease;
+			}
+
+			button:hover {
+				transform: translateY(-1px);
+			}
+
+			.primary-button {
+				background: linear-gradient(135deg, var(--accent) 0%, var(--accent-strong) 100%);
+				color: white;
+				box-shadow: 0 14px 28px rgba(15, 118, 110, 0.22);
+			}
+
+			.secondary-button {
+				background: transparent;
+				color: var(--ink);
+				border: 1px solid var(--line);
+			}
+
+			.details {
+				display: grid;
+				gap: 16px;
+			}
+
+			.details h2,
+			.result-panel h2 {
+				margin: 0 0 10px;
+				font-size: 1rem;
+				letter-spacing: 0.06em;
+				text-transform: uppercase;
+			}
+
+			dl {
+				display: grid;
+				grid-template-columns: 1fr;
+				gap: 12px;
+				margin: 0;
+			}
+
+			.detail-row {
+				padding-bottom: 12px;
+				border-bottom: 1px solid var(--line);
+			}
+
+			dt {
+				margin-bottom: 6px;
+				color: var(--muted);
+				font-size: 0.85rem;
+				text-transform: uppercase;
+				letter-spacing: 0.08em;
+			}
+
+			dd {
+				margin: 0;
+				font-family: 'SFMono-Regular', ui-monospace, Menlo, Consolas, monospace;
+				font-size: 0.95rem;
+				word-break: break-word;
+			}
+
+			.grid {
+				display: grid;
+				grid-template-columns: repeat(2, minmax(0, 1fr));
+				gap: 20px;
+				margin-top: 24px;
+			}
+
+			.result-panel pre {
+				margin: 0;
+				padding: 18px;
+				border-radius: 18px;
+				border: 1px solid rgba(17, 94, 89, 0.12);
+				background: #f6fbfa;
+				color: #123534;
+				font-family: 'SFMono-Regular', ui-monospace, Menlo, Consolas, monospace;
+				font-size: 0.9rem;
+				line-height: 1.55;
+				white-space: pre-wrap;
+				word-break: break-word;
+			}
+
+			.note {
+				margin-top: 18px;
+				padding: 16px 18px;
+				border-radius: 18px;
+				background: rgba(17, 94, 89, 0.08);
+				border: 1px solid rgba(17, 94, 89, 0.1);
+			}
+
+			code {
+				font-family: 'SFMono-Regular', ui-monospace, Menlo, Consolas, monospace;
+				font-size: 0.95em;
+			}
+
+			@media (max-width: 760px) {
+				main {
+					padding-top: 24px;
+				}
+
+				.hero,
+				.grid {
+					grid-template-columns: 1fr;
+				}
+
+				.card {
+					padding: 24px;
+				}
+			}
+		</style>
+		<script src="/newsletters.js" defer></script>
+	</head>
+	<body>
+		<main>
+			<section class="hero">
+				<div class="card">
+					<span class="kicker">Local Example</span>
+					<h1>Open the real newsletter signup dialog.</h1>
+					<p>
+						This page is the working example for the public <code>window.Newsletters.open(...)</code> API. When served from
+						<code>localhost</code> or <code>127.0.0.1</code>, it uses the Turnstile test key path and the submission is intentionally sunk
+						instead of stored.
+					</p>
+					<div class="actions">
+						<button id="newsletter-open-button" class="primary-button" type="button">Open Signup Dialog</button>
+						<button id="newsletter-open-prefilled-button" class="secondary-button" type="button">Open With Prefill</button>
+					</div>
+					<div class="note">
+						Use this page for local smoke testing. On a real approved hostname, the same API path writes live subscriptions.
+					</div>
+				</div>
+				<aside class="card details">
+					<div>
+						<h2>Example Settings</h2>
+						<dl>
+							<div class="detail-row">
+								<dt>Hostname</dt>
+								<dd id="example-hostname"></dd>
+							</div>
+							<div class="detail-row">
+								<dt>Worker Origin</dt>
+								<dd id="example-origin"></dd>
+							</div>
+							<div class="detail-row">
+								<dt>List Name</dt>
+								<dd><code>weekly</code></dd>
+							</div>
+							<div class="detail-row">
+								<dt>Expected Local Result</dt>
+								<dd><code>SINK_ACCEPTED</code></dd>
+							</div>
+						</dl>
+					</div>
+				</aside>
+			</section>
+
+			<section class="grid">
+				<div class="card result-panel">
+					<h2>Copy/Paste Snippet</h2>
+					<pre><code>&lt;script src="/newsletters.js" defer&gt;&lt;/script&gt;
+&lt;button id="newsletter-signup"&gt;Subscribe&lt;/button&gt;
+&lt;script&gt;
+document.getElementById('newsletter-signup').addEventListener('click', () =&gt; {
+	window.Newsletters.open({ listName: 'weekly' });
+});
+&lt;/script&gt;</code></pre>
+				</div>
+				<div class="card result-panel">
+					<h2>Latest Result</h2>
+					<pre id="newsletter-result">No action yet.</pre>
+				</div>
+			</section>
+		</main>
+
+		<script>
+			const resultElement = document.getElementById('newsletter-result');
+			document.getElementById('example-hostname').textContent = window.location.hostname;
+			document.getElementById('example-origin').textContent = window.location.origin;
+
+			const showResult = (value) => {
+				resultElement.textContent = JSON.stringify(value, null, 2);
+			};
+
+			const openNewsletter = async (options) => {
+				if (!window.Newsletters || typeof window.Newsletters.open !== 'function') {
+					showResult({ error: 'NEWSLETTERS_SCRIPT_NOT_READY', success: false });
+					return;
+				}
+
+				try {
+					const result = await window.Newsletters.open(options);
+					showResult(result);
+				} catch (error) {
+					showResult({
+						error: error instanceof Error ? error.message : String(error),
+						success: false,
+					});
+				}
+			};
+
+			document.getElementById('newsletter-open-button').addEventListener('click', () => {
+				openNewsletter({ listName: 'weekly' });
+			});
+
+			document.getElementById('newsletter-open-prefilled-button').addEventListener('click', () => {
+				openNewsletter({
+					listName: 'weekly',
+					personName: 'Local Example',
+				});
+			});
+		</script>
+	</body>
+</html>

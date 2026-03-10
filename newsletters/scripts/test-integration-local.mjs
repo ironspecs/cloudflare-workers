@@ -201,7 +201,10 @@ const main = async () => {
 
 			const homepage = await fetch(`${baseUrl}/`);
 			assert.equal(homepage.status, 200);
-			assert.match(await homepage.text(), /<form/i);
+			const homepageHtml = await homepage.text();
+			assert.match(homepageHtml, /Open the real newsletter signup dialog/i);
+			assert.match(homepageHtml, /newsletter-open-button/);
+			assert.match(homepageHtml, /window\.Newsletters\.open/);
 
 			const newslettersScriptResponse = await fetch(`${baseUrl}/newsletters.js`);
 			assert.equal(newslettersScriptResponse.status, 200);

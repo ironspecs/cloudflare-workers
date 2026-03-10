@@ -7,9 +7,9 @@
 This service exists so multiple websites can share one newsletter signup backend without each site re-implementing:
 
 - hostname allowlisting
-- CSRF protection for cross-site embeds
+- signed short-lived submit tokens for browser embeds
 - bot protection with Turnstile
-- short-lived session bootstrapping
+- short-lived submit-token bootstrapping
 - rate limiting
 - encrypted per-hostname secret storage
 
@@ -81,6 +81,8 @@ npm run deploy:live
 ```
 
 The dialog script calls `/newsletters/session`, renders Turnstile explicitly, and then submits to `/subscribe`.
+
+The working local example page is at [newsletters/examples/local-embed/index.html](/Users/dane/Projects/ironspecs/cloudflare-workers/newsletters/examples/local-embed/index.html).
 
 ## Exposed API
 
@@ -210,7 +212,7 @@ It also scales better than one large env JSON map for hundreds of hostnames.
 - [newsletters/src/index.ts](/Users/dane/Projects/ironspecs/cloudflare-workers/newsletters/src/index.ts): worker routes
 - [newsletters/src/lib/embed-script.ts](/Users/dane/Projects/ironspecs/cloudflare-workers/newsletters/src/lib/embed-script.ts): browser embed script
 - [newsletters/src/lib/turnstile.ts](/Users/dane/Projects/ironspecs/cloudflare-workers/newsletters/src/lib/turnstile.ts): Turnstile verification
-- [newsletters/src/lib/newsletter-sessions.ts](/Users/dane/Projects/ironspecs/cloudflare-workers/newsletters/src/lib/newsletter-sessions.ts): KV-backed session flow
+- [newsletters/src/lib/newsletter-sessions.ts](/Users/dane/Projects/ironspecs/cloudflare-workers/newsletters/src/lib/newsletter-sessions.ts): signed submit-token flow
 - [newsletters/scripts/sync-cloudflare-config.mjs](/Users/dane/Projects/ironspecs/cloudflare-workers/newsletters/scripts/sync-cloudflare-config.mjs): Cloudflare config sync
 
 ## Tests
@@ -261,7 +263,7 @@ The main pieces worth reusing are:
 
 - the embed script pattern
 - the hostname allowlist model
-- the KV-backed short-lived session flow
+- the signed short-lived submit-token flow
 - the KEK/DEK encrypted shadow-table design
 
 What you will probably customize first:
