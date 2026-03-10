@@ -1,4 +1,7 @@
-import { D1Database } from '@cloudflare/workers-types/experimental';
+import type { D1Database } from '@cloudflare/workers-types';
+import { eq } from 'drizzle-orm';
+import { hostname_config } from './schema';
+import { getDb } from '../lib/drizzle';
 
 /**
  * HostnameConfigs represent a known hostname that is allowed to use the service.
@@ -8,25 +11,18 @@ import { D1Database } from '@cloudflare/workers-types/experimental';
  */
 export type HostnameConfig = {
 	hostname: string;
-	google_recaptcha_secret: string | null;
+	turnstile_site_key: string | null;
 };
 
 export const getHostnameConfigByHostname = async (db: D1Database, hostname: string): Promise<HostnameConfig | null> => {
-	return db.prepare('SELECT hostname, google_recaptcha_secret FROM hostname_config WHERE hostname = ?').bind(hostname).first();
+	const records = await getDb(db).select().from(hostname_config).where(eq(hostname_config.hostname, hostname)).limit(1);
+	return records[0] ?? null;
 };
 
 export const insertHostnameConfig = async (db: D1Database, data: HostnameConfig): Promise<void> => {
-	db.prepare('INSERT INTO hostname_config (hostname, google_recaptcha_secret) VALUES (?, ?)')
-		.bind(data.hostname, data.google_recaptcha_secret)
-		.run();
-};
-
-export const updateHostnameConfig = async (db: D1Database, data: HostnameConfig): Promise<void> => {
-	db.prepare('UPDATE hostname_config SET google_recaptcha_secret = ? WHERE hostname = ?')
-		.bind(data.google_recaptcha_secret, data.hostname)
-		.run();
+	await getDb(db).insert(hostname_config).values(data);
 };
 
 export const deleteHostnameConfig = async (db: D1Database, hostname: string): Promise<void> => {
-	db.prepare('DELETE FROM hostname_config WHERE hostname = ?').bind(hostname).run();
+	await getDb(db).delete(hostname_config).where(eq(hostname_config.hostname, hostname));
 };

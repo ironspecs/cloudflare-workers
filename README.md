@@ -4,8 +4,7 @@ Cloudflare Workers run JavaScript in a V8 environment. They are a serverless pla
 
 ## Projects
 
-- [api-keys](./api-keys)
-- [static-sites](./static-sites)
+- [newsletters](./newsletters)
 
 ## Testing
 

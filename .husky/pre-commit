@@ -1,7 +1,4 @@
-#!/usr/bin/env sh
-. "$(dirname -- "$0")/_/husky.sh"
-
 npm test
-npx lint-staged
+npx --no-install lint-staged
 sh ./scripts/enforce_rules.sh
 sh ./scripts/cleanup_artifacts.sh

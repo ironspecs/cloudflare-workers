@@ -1,5 +1,8 @@
-import { D1Database } from '@cloudflare/workers-types/experimental';
+import type { D1Database } from '@cloudflare/workers-types';
+import { and, eq } from 'drizzle-orm';
 import { Subset } from '../common';
+import { getDb } from '../lib/drizzle';
+import { subscription } from './schema';
 
 export type SubscriptionRecord = {
 	id: string;
@@ -24,19 +27,41 @@ export type InsertSubscriptionOptions = Subset<
 	}
 >;
 
+type SubscriptionRow = typeof subscription.$inferSelect;
+
+const fromNullableTimestamp = (value: number | null): Date | null => {
+	return value === null ? null : new Date(value);
+};
+
+const toSubscriptionRecord = (row: SubscriptionRow): SubscriptionRecord => {
+	return {
+		...row,
+		created_at: fromNullableTimestamp(row.created_at),
+		email_confirmed_at: fromNullableTimestamp(row.email_confirmed_at),
+		unsubscribed_at: fromNullableTimestamp(row.unsubscribed_at),
+	};
+};
+
 export const getSubscriptionRecordById = async (db: D1Database, id: string): Promise<SubscriptionRecord | null> => {
-	return db.prepare('SELECT * FROM subscription WHERE id = ?').bind(id).first();
+	const records = await getDb(db).select().from(subscription).where(eq(subscription.id, id)).limit(1);
+	return records[0] ? toSubscriptionRecord(records[0]) : null;
 };
 
 export const insertSubscriptionRecord = async (db: D1Database, options: InsertSubscriptionOptions): Promise<void> => {
-	await db
-		.prepare('INSERT INTO subscription (id, email, hostname, list_name, person_name, created_at) VALUES (?, ?, ?, ?, ?, ?)')
-		.bind(options.id, options.email, options.hostname, options.list_name, options.person_name || null, new Date().getTime())
-		.run();
+	await getDb(db)
+		.insert(subscription)
+		.values({
+			created_at: Date.now(),
+			email: options.email,
+			hostname: options.hostname,
+			id: options.id,
+			list_name: options.list_name,
+			person_name: options.person_name ?? null,
+		});
 };
 
 export const deleteSubscriptionRecordById = async (db: D1Database, id: string): Promise<void> => {
-	await db.prepare('DELETE FROM subscription WHERE id = ?').bind(id).run();
+	await getDb(db).delete(subscription).where(eq(subscription.id, id));
 };
 
 export type SubscriptionRecordUniqueValues = Subset<
@@ -52,10 +77,18 @@ export const getSubscriptionRecordByUniqueValues = async (
 	db: D1Database,
 	options: SubscriptionRecordUniqueValues,
 ): Promise<SubscriptionRecord | null> => {
-	return db
-		.prepare('SELECT * FROM subscription WHERE email = ? AND hostname = ? AND list_name = ?')
-		.bind(options.email, options.hostname, options.list_name)
-		.first();
+	const records = await getDb(db)
+		.select()
+		.from(subscription)
+		.where(
+			and(
+				eq(subscription.email, options.email),
+				eq(subscription.hostname, options.hostname),
+				eq(subscription.list_name, options.list_name),
+			),
+		)
+		.limit(1);
+	return records[0] ? toSubscriptionRecord(records[0]) : null;
 };
 
 export type SetUnsubscribedAtOptions = Subset<
@@ -67,8 +100,8 @@ export type SetUnsubscribedAtOptions = Subset<
 >;
 
 export const setSubscriptionRecordUnsubscribedAt = async (db: D1Database, options: SetUnsubscribedAtOptions) => {
-	const unsubscribed_at = options.unsubscribed_at?.getTime() || null;
-	await db.prepare('UPDATE subscription SET unsubscribed_at = ? WHERE id = ?').bind(unsubscribed_at, options.id).run();
+	const unsubscribed_at = options.unsubscribed_at?.getTime() ?? null;
+	await getDb(db).update(subscription).set({ unsubscribed_at }).where(eq(subscription.id, options.id));
 };
 
 export type SetEmailSubscriptionOptions = Subset<
@@ -80,6 +113,6 @@ export type SetEmailSubscriptionOptions = Subset<
 >;
 
 export const setSubscriptionRecordEmailConfirmedAt = async (db: D1Database, options: SetEmailSubscriptionOptions): Promise<void> => {
-	const email_confirmed_at = options.email_confirmed_at?.getTime() || null;
-	await db.prepare('UPDATE subscription SET email_confirmed_at = ? WHERE id = ?').bind(email_confirmed_at, options.id).run();
+	const email_confirmed_at = options.email_confirmed_at?.getTime() ?? null;
+	await getDb(db).update(subscription).set({ email_confirmed_at }).where(eq(subscription.id, options.id));
 };

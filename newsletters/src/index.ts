@@ -1,156 +1,295 @@
-/**
- * A Cloudflare Worker that implements an API for managing API keys. API keys are stored
- * in the API_KEYS KV store. The API is protected by an auth key that is passed in the
- * Authorization header. The API is also protected by CORS by checking the Origin header
- * against the ALLOWED_ORIGINS environment variable. The API is meant to be used by
- * other websites, so it's important to restrict access to the API to prevent unauthorized
- * access.
- *
- * The API is NOT protected by rate limiting since it will contain the policies for rate-limiting
- * other services, therefore it's important to only use strong auth keys. Instead, we will rely on
- * Cloudflare's anti-DDoS protection to prevent brute force attacks. The API is also not
- * protected by a CSRF token since it's not meant to be used by forms.
- *
- * In non-production environments, the API has known auth keys that are used for testing, set in
- * plain text in the ALLOWED_AUTH_KEYS environment variable. In production environments, the
- * ALLOWED_AUTH_KEYS environment variable is empty and the auth keys are set as secrets in the
- * Cloudflare dashboard. The secret auth keys are set as secrets in Cloudflare that begin with
- * the prefix "SECRET_AUTH_KEY_" so they can be rotated easily, or have different auth keys for
- * different services, i.e., SECRET_AUTH_KEY_SERVICE_A, SECRET_AUTH_KEY_SERVICE_B, etc.
- *
- * - Run `npm run dev` in your terminal to start a development server
- * - Open a browser tab at http://localhost:8787/ to see worker in action
- * - Run `npm run deploy` to publish worker
- *
- * Learn more at https://developers.cloudflare.com/workers/
- */
-
-import { Env } from './common';
+import { safeParseAsync } from 'valibot';
+import { email as validEmail, object, optional, picklist, pipe, string } from 'valibot';
+import type { Env } from './common';
 import htmlContent from './index.html';
-import { createHTMLResponse, createMethodNotAllowedResponse, createNotFoundResponse } from './lib/responses';
-import { handle } from './lib/requests';
-import { EmailConfirm, getListConfigRecordByUniqueValues } from './db/list-config-records';
-import { confirmEmail, subscribe, unsubscribe } from './domain/subscriptions';
-import { object, optional, string, email as validEmail } from 'valibot';
+import { getHostnameConfigByHostname } from './db/hostname-config-records';
+import { subscribe, unsubscribe } from './domain/subscriptions';
+import { getBrowserRequestContext } from './lib/browser';
+import { createEmbedScript } from './lib/embed-script';
+import {
+	createNewsletterSession,
+	deleteNewsletterSession,
+	NewsletterSessionAction,
+	validateNewsletterSession,
+} from './lib/newsletter-sessions';
+import { parseRequest } from './lib/requests';
+import {
+	createHTMLResponse,
+	createJSONResponse,
+	createJavaScriptResponse,
+	createMethodNotAllowedResponse,
+	createNotFoundResponse,
+} from './lib/responses';
+import { applyRateLimit, getRateLimitKey } from './lib/rate-limit';
+import { verifyTurnstileToken } from './lib/turnstile';
 
-export type RouteHandler = (request: Request, env: Env) => Promise<Response>;
+type RouteHandler = (request: Request, env: Env) => Promise<Response>;
 
-const handleSendUserConfirmationEmail = handle(object({}), (_, env, {}) => Promise.resolve({ success: true, value: '' }));
-
-/**
- */
-const handleSubscribe = handle(
-	object({
-		query: object({}),
-		body: object({
-			email: string([validEmail()]),
-			hostname: string(),
-			list_name: string(),
-			person_name: optional(string()),
-		}),
+const newsletterSessionSchema = object({
+	query: object({}),
+	body: object({
+		action: picklist([NewsletterSessionAction.Subscribe, NewsletterSessionAction.Unsubscribe]),
+		list_name: optional(string()),
 	}),
-	async (_, env, { body }) => {
-		const subscribeResults = await subscribe(env, body);
-		if (!subscribeResults.success) {
-			return subscribeResults;
-		}
+});
 
-		const listConfig = await getListConfigRecordByUniqueValues(env.NewslettersD1, body);
-
-		if (listConfig !== null && listConfig.email_confirm === EmailConfirm.Link) {
-			// TODO: Send the user an email with a link to confirm their email address.
-			// TODO: Add google captcha check.
-			// TODO: Add CSRF token check.
-		}
-
-		return subscribeResults;
-	},
-);
-
-/**
- * If they return a token, we can unsubscribe them right away because they
- * came from an email. If they don't return a token, only show a UI without
- * any PII. If they enter correct PII, then generate the token and recall
- * this endpoint with that new token.
- */
-const handleUnsubscribe = handle(
-	object({
-		query: object({}),
-		body: object({
-			email: string([validEmail()]),
-			hostname: string(),
-			list_name: string(),
-			token: optional(string()),
-		}),
+const subscriptionSchema = object({
+	query: object({}),
+	body: object({
+		email: pipe(string(), validEmail()),
+		hostname: string(),
+		list_name: string(),
+		person_name: optional(string()),
+		turnstile_token: string(),
 	}),
-	(_, env, { body }) => unsubscribe(env, body),
-);
+});
 
-/**
- * If wanted, an email can include an email confirmation link. This is
- * useful to prevent bots.
- */
-const handleConfirmEmail = handle(
-	object({
-		query: object({}),
-		body: object({
-			token: string(),
-			hostname: string(),
-		}),
-	}),
-	(_, env, { body }) => confirmEmail(env, body),
-);
+const verifyQuerySchema = object({
+	hostname: string(),
+});
+
+const createErrorResponse = (error: string | string[], status: number, headers?: HeadersInit) =>
+	createJSONResponse({ error, success: false }, status, headers);
+
+const createResultResponse = <T, E>(result: { success: boolean; value?: T; error?: E }, headers?: HeadersInit) =>
+	createJSONResponse(result as Record<string, unknown>, result.success ? 200 : 400, headers);
+
+const createOptionsResponse = (headers: HeadersInit) =>
+	new Response(null, {
+		headers,
+		status: 204,
+	});
+
+const getHeaderValue = (request: Request, headerName: string) => request.headers.get(headerName) ?? '';
+
+const applyBrowserRateLimit = async (binding: Env['SESSION_RATE_LIMIT'], request: Request, hostname: string, headers: Headers) => {
+	const rateLimitResult = await applyRateLimit(binding, getRateLimitKey(request, hostname));
+	return rateLimitResult.success ? null : createErrorResponse(rateLimitResult.error, 429, headers);
+};
+
+const getVerifyHostname = async (request: Request) => {
+	const url = new URL(request.url);
+	const query: Record<string, string> = {};
+	for (const [key, value] of url.searchParams.entries()) {
+		query[key] = value;
+	}
+
+	return safeParseAsync(verifyQuerySchema, query);
+};
+
+const handleNewslettersScript = async (): Promise<Response> => {
+	return createJavaScriptResponse(createEmbedScript());
+};
+
+const handleNewslettersSession = async (request: Request, env: Env): Promise<Response> => {
+	const browserContext = await getBrowserRequestContext(env, request);
+	if (!browserContext.success) {
+		return createErrorResponse(browserContext.error, 403);
+	}
+
+	const parsedRequest = await parseRequest(request, newsletterSessionSchema);
+	if (!parsedRequest.success) {
+		return createErrorResponse(parsedRequest.error, 400, browserContext.value.corsHeaders);
+	}
+
+	const rateLimitResponse = await applyBrowserRateLimit(
+		env.SESSION_RATE_LIMIT,
+		request,
+		browserContext.value.hostname,
+		browserContext.value.corsHeaders,
+	);
+	if (rateLimitResponse) {
+		return rateLimitResponse;
+	}
+
+	const siteKey = browserContext.value.hostnameConfig.turnstile_site_key;
+	if (!siteKey) {
+		return createErrorResponse('TURNSTILE_NOT_CONFIGURED', 500, browserContext.value.corsHeaders);
+	}
+
+	const session = await createNewsletterSession(env, {
+		action: parsedRequest.value.body.action,
+		hostname: browserContext.value.hostname,
+		origin: browserContext.value.origin,
+	});
+
+	return createResultResponse(
+		{
+			success: true,
+			value: {
+				...session,
+				siteKey,
+			},
+		},
+		browserContext.value.corsHeaders,
+	);
+};
+
+const handleProtectedSubscription = async (
+	request: Request,
+	env: Env,
+	action: NewsletterSessionAction,
+	handler: typeof subscribe | typeof unsubscribe,
+): Promise<Response> => {
+	const browserContext = await getBrowserRequestContext(env, request);
+	if (!browserContext.success) {
+		return createErrorResponse(browserContext.error, 403);
+	}
+
+	const parsedRequest = await parseRequest(request, subscriptionSchema);
+	if (!parsedRequest.success) {
+		return createErrorResponse(parsedRequest.error, 400, browserContext.value.corsHeaders);
+	}
+
+	if (browserContext.value.hostname !== parsedRequest.value.body.hostname.toLowerCase()) {
+		return createErrorResponse('INVALID_HOSTNAME', 403, browserContext.value.corsHeaders);
+	}
+
+	const rateLimitResponse = await applyBrowserRateLimit(
+		env.SUBMIT_RATE_LIMIT,
+		request,
+		browserContext.value.hostname,
+		browserContext.value.corsHeaders,
+	);
+	if (rateLimitResponse) {
+		return rateLimitResponse;
+	}
+
+	const sessionValidation = await validateNewsletterSession(env, {
+		action,
+		csrfToken: getHeaderValue(request, 'X-CSRF-Token'),
+		hostname: browserContext.value.hostname,
+		origin: browserContext.value.origin,
+		sessionId: getHeaderValue(request, 'X-Session-Id'),
+	});
+	if (!sessionValidation.success) {
+		return createErrorResponse(sessionValidation.error, 403, browserContext.value.corsHeaders);
+	}
+
+	const turnstileResult = await verifyTurnstileToken(env, request, browserContext.value.hostname, parsedRequest.value.body.turnstile_token);
+	if (!turnstileResult.success) {
+		return createErrorResponse(
+			turnstileResult.error,
+			turnstileResult.error === 'TURNSTILE_NOT_CONFIGURED' ? 500 : 403,
+			browserContext.value.corsHeaders,
+		);
+	}
+
+	const result = await handler(env, parsedRequest.value.body);
+	await deleteNewsletterSession(env, getHeaderValue(request, 'X-Session-Id'));
+
+	return createResultResponse(result, browserContext.value.corsHeaders);
+};
+
+const handleSubscribe = async (request: Request, env: Env): Promise<Response> => {
+	return handleProtectedSubscription(request, env, NewsletterSessionAction.Subscribe, subscribe);
+};
+
+const handleUnsubscribe = async (request: Request, env: Env): Promise<Response> => {
+	return handleProtectedSubscription(request, env, NewsletterSessionAction.Unsubscribe, unsubscribe);
+};
+
+const handleDisabledConfirmationWrite = async (request: Request, env: Env): Promise<Response> => {
+	const browserContext = await getBrowserRequestContext(env, request);
+	if (!browserContext.success) {
+		return createErrorResponse(browserContext.error, 403);
+	}
+
+	const rateLimitResponse = await applyBrowserRateLimit(
+		env.SUBMIT_RATE_LIMIT,
+		request,
+		browserContext.value.hostname,
+		browserContext.value.corsHeaders,
+	);
+	if (rateLimitResponse) {
+		return rateLimitResponse;
+	}
+
+	return createErrorResponse('EMAIL_CONFIRMATION_DISABLED', 501, browserContext.value.corsHeaders);
+};
+
+const handleDisabledConfirmationRead = async (request: Request, env: Env): Promise<Response> => {
+	const parsedQuery = await getVerifyHostname(request);
+	if (!parsedQuery.success) {
+		return createErrorResponse(
+			parsedQuery.issues.map((issue) => issue.message),
+			400,
+		);
+	}
+
+	const hostnameConfig = await getHostnameConfigByHostname(env.NewslettersD1, parsedQuery.output.hostname);
+	if (hostnameConfig === null) {
+		return createErrorResponse('UNKNOWN_HOSTNAME', 403);
+	}
+
+	const rateLimitResult = await applyRateLimit(env.VERIFY_RATE_LIMIT, getRateLimitKey(request, parsedQuery.output.hostname));
+	if (!rateLimitResult.success) {
+		return createErrorResponse(rateLimitResult.error, 429);
+	}
+
+	return createErrorResponse('EMAIL_CONFIRMATION_DISABLED', 501);
+};
+
+const handleOptions = async (request: Request, env: Env): Promise<Response> => {
+	const browserContext = await getBrowserRequestContext(env, request);
+	if (!browserContext.success) {
+		return createErrorResponse(browserContext.error, 403);
+	}
+
+	return createOptionsResponse(browserContext.value.corsHeaders);
+};
 
 const routes = {
-	'/subscribe': {
-		get: handleSubscribe,
-		post: handleSubscribe,
+	'/confirm': {
+		get: handleDisabledConfirmationRead,
+	},
+	'/confirm/send': {
+		options: handleOptions,
+		post: handleDisabledConfirmationWrite,
 	},
 	'/join': {
-		get: handleSubscribe,
+		options: handleOptions,
+		post: handleSubscribe,
+	},
+	'/leave': {
+		options: handleOptions,
+		post: handleUnsubscribe,
+	},
+	'/subscribe': {
+		options: handleOptions,
 		post: handleSubscribe,
 	},
 	'/unsubscribe': {
-		get: handleUnsubscribe,
-		post: handleUnsubscribe,
-	},
-	'/leave': {
-		get: handleUnsubscribe,
+		options: handleOptions,
 		post: handleUnsubscribe,
 	},
 	'/verify': {
-		get: handleConfirmEmail,
+		get: handleDisabledConfirmationRead,
 	},
-	'/confirm': {
-		get: handleConfirmEmail,
+	'/newsletters.js': {
+		get: handleNewslettersScript,
 	},
-	'/confirm/send': {
-		get: handleSendUserConfirmationEmail,
+	'/newsletters/session': {
+		options: handleOptions,
+		post: handleNewslettersSession,
 	},
-} as Record<string, { [key: string]: RouteHandler }>;
+} as Record<string, Record<string, RouteHandler>>;
 
 export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
 		const pathname = new URL(request.url).pathname;
-
-		if (routes[pathname]) {
-			// Add rate-limiting here for public routes
-
-			const route = routes[pathname];
-			const method = request.method.toLowerCase();
-			if (method in route) {
-				return route[method](request, env);
+		const route = routes[pathname];
+		if (route) {
+			const handler = route[request.method.toLowerCase()];
+			if (!handler) {
+				return createMethodNotAllowedResponse();
 			}
 
-			return createMethodNotAllowedResponse();
+			return handler(request, env);
 		}
 
-		if (request.method === 'GET') {
-			// If they have the right API key, they may be able to download the list of subscribers.
-			switch (pathname) {
-				case '/':
-					return createHTMLResponse(htmlContent);
-			}
+		if (request.method === 'GET' && pathname === '/') {
+			return createHTMLResponse(htmlContent);
 		}
 
 		return createNotFoundResponse();

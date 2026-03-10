@@ -40,6 +40,12 @@ export const fromHex = (hex: string): Uint8Array => {
 	return bytes;
 };
 
+export const sha256Hex = async (value: string): Promise<string> => {
+	const encoded = new TextEncoder().encode(value);
+	const digest = await crypto.subtle.digest('SHA-256', encoded);
+	return toHex(new Uint8Array(digest));
+};
+
 /**
  * It's silly that the keyLength is configurable since there is only one optimal
  * key length for each algorithm.
@@ -49,6 +55,23 @@ const knownPBKDF2Algorithms = {
 	'SHA-256': { keyLength: 256 },
 	'SHA-384': { keyLength: 384 },
 	'SHA-512': { keyLength: 512 },
+};
+
+const timingSafeEqual = (left: Uint8Array, right: Uint8Array): boolean => {
+	const subtle = crypto.subtle as SubtleCrypto & {
+		timingSafeEqual?: (a: Uint8Array, b: Uint8Array) => boolean;
+	};
+
+	if (typeof subtle.timingSafeEqual === 'function') {
+		return subtle.timingSafeEqual(left, right);
+	}
+
+	let result = 0;
+	for (let index = 0; index < left.length; index += 1) {
+		result |= left[index] ^ right[index];
+	}
+
+	return result === 0;
 };
 
 export class PBKDF2 {
@@ -117,6 +140,6 @@ export class PBKDF2 {
 			return false;
 		}
 
-		return crypto.subtle.timingSafeEqual(hashedKey, derivedKey);
+		return timingSafeEqual(hashedKey, derivedKey);
 	}
 }

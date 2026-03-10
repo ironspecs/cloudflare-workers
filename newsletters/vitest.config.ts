@@ -1,14 +1,19 @@
-// @ts-ignore
-import { defineWorkersConfig } from '@cloudflare/vitest-pool-workers/config';
+import { defineConfig } from 'vitest/config';
 
-export default defineWorkersConfig({
+export default defineConfig({
 	test: {
-		poolOptions: {
-			workers: {
-				miniflare: {},
-				wrangler: { configPath: './wrangler.toml' },
+		coverage: {
+			exclude: ['src/**/*.unit.test.ts', 'src/index.ts', 'src/index.html'],
+			include: ['src/common.ts', 'src/domain/subscription-tokens.ts', 'src/lib/**/*.ts'],
+			provider: 'v8',
+			thresholds: {
+				branches: 85,
+				functions: 90,
+				lines: 90,
+				statements: 90,
 			},
 		},
+		environment: 'node',
+		include: ['src/**/*.unit.test.ts'],
 	},
-	assetsInclude: ['**/*.html'],
 });

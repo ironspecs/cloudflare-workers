@@ -1,0 +1,8 @@
+creation_rules:
+  - age:
+      # Personal
+      - age1tdyvh0dru9vnyn8em0tp3mye9qma6xqfj4yp6ay65nwyvw94ndasftln49
+      # Production
+      - age15cwt6yx7pnaxtcffaudtplxzrxfwtz48ydpjst0pr9hwn7ml95rs4c9xxx
+      # Backup
+      - age18aghcthla9kuuqskewwyuk34j9xs346qx2vrwlng20k6dc0yt34szw7p2w

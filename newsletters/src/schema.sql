@@ -4,7 +4,14 @@
  */
 CREATE TABLE hostname_config (
 	hostname VARCHAR(127) NOT NULL PRIMARY KEY,
-	google_recaptcha_secret VARCHAR(127)
+	turnstile_site_key VARCHAR(127)
+);
+CREATE TABLE hostname_config_secrets (
+	hostname VARCHAR(127) NOT NULL PRIMARY KEY,
+	dek_kek_id VARCHAR(127) NOT NULL,
+	dek_wrapped TEXT NOT NULL,
+	turnstile_secret_key_ciphertext TEXT NOT NULL,
+	FOREIGN KEY (hostname) REFERENCES hostname_config(hostname) ON DELETE CASCADE
 );
 /*
  List config is optional.
@@ -53,6 +60,3 @@ CREATE TABLE subscription_token (
 	FOREIGN KEY (subscription_id) REFERENCES subscription(id)
 );
 CREATE UNIQUE INDEX subscription_token_subscription_id_token_type ON subscription_token(subscription_id, token_type);
-/* Test example */
-INSERT INTO hostname_config (hostname, google_recaptcha_secret)
-VALUES ('example.com', null)

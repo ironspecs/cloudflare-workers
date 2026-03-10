@@ -1,0 +1,291 @@
+{
+	"version": "7",
+	"dialect": "sqlite",
+	"id": "ebccdfde-1308-46db-9e77-8dc7f61e2a04",
+	"prevIds": ["00000000-0000-0000-0000-000000000000"],
+	"ddl": [
+		{
+			"name": "hostname_config",
+			"entityType": "tables"
+		},
+		{
+			"name": "list_config",
+			"entityType": "tables"
+		},
+		{
+			"name": "subscription",
+			"entityType": "tables"
+		},
+		{
+			"name": "subscription_token",
+			"entityType": "tables"
+		},
+		{
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "hostname",
+			"entityType": "columns",
+			"table": "hostname_config"
+		},
+		{
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "google_recaptcha_secret",
+			"entityType": "columns",
+			"table": "hostname_config"
+		},
+		{
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "id",
+			"entityType": "columns",
+			"table": "list_config"
+		},
+		{
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "hostname",
+			"entityType": "columns",
+			"table": "list_config"
+		},
+		{
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "list_name",
+			"entityType": "columns",
+			"table": "list_config"
+		},
+		{
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "email_confirm",
+			"entityType": "columns",
+			"table": "list_config"
+		},
+		{
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "id",
+			"entityType": "columns",
+			"table": "subscription"
+		},
+		{
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "email",
+			"entityType": "columns",
+			"table": "subscription"
+		},
+		{
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "hostname",
+			"entityType": "columns",
+			"table": "subscription"
+		},
+		{
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "list_name",
+			"entityType": "columns",
+			"table": "subscription"
+		},
+		{
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "created_at",
+			"entityType": "columns",
+			"table": "subscription"
+		},
+		{
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "person_name",
+			"entityType": "columns",
+			"table": "subscription"
+		},
+		{
+			"type": "integer",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "email_confirmed_at",
+			"entityType": "columns",
+			"table": "subscription"
+		},
+		{
+			"type": "integer",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "unsubscribed_at",
+			"entityType": "columns",
+			"table": "subscription"
+		},
+		{
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "id",
+			"entityType": "columns",
+			"table": "subscription_token"
+		},
+		{
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "subscription_id",
+			"entityType": "columns",
+			"table": "subscription_token"
+		},
+		{
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "token_type",
+			"entityType": "columns",
+			"table": "subscription_token"
+		},
+		{
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"name": "expires_at",
+			"entityType": "columns",
+			"table": "subscription_token"
+		},
+		{
+			"columns": ["hostname"],
+			"nameExplicit": false,
+			"name": "hostname_config_pk",
+			"table": "hostname_config",
+			"entityType": "pks"
+		},
+		{
+			"columns": ["id"],
+			"nameExplicit": false,
+			"name": "list_config_pk",
+			"table": "list_config",
+			"entityType": "pks"
+		},
+		{
+			"columns": ["id"],
+			"nameExplicit": false,
+			"name": "subscription_pk",
+			"table": "subscription",
+			"entityType": "pks"
+		},
+		{
+			"columns": ["id"],
+			"nameExplicit": false,
+			"name": "subscription_token_pk",
+			"table": "subscription_token",
+			"entityType": "pks"
+		},
+		{
+			"columns": [
+				{
+					"value": "hostname",
+					"isExpression": false
+				},
+				{
+					"value": "list_name",
+					"isExpression": false
+				}
+			],
+			"isUnique": true,
+			"where": null,
+			"origin": "manual",
+			"name": "list_config_hostname_list_name",
+			"entityType": "indexes",
+			"table": "list_config"
+		},
+		{
+			"columns": [
+				{
+					"value": "email",
+					"isExpression": false
+				},
+				{
+					"value": "hostname",
+					"isExpression": false
+				},
+				{
+					"value": "list_name",
+					"isExpression": false
+				}
+			],
+			"isUnique": true,
+			"where": null,
+			"origin": "manual",
+			"name": "subscription_email_hostname_list_name",
+			"entityType": "indexes",
+			"table": "subscription"
+		},
+		{
+			"columns": [
+				{
+					"value": "subscription_id",
+					"isExpression": false
+				},
+				{
+					"value": "token_type",
+					"isExpression": false
+				}
+			],
+			"isUnique": true,
+			"where": null,
+			"origin": "manual",
+			"name": "subscription_token_subscription_id_token_type",
+			"entityType": "indexes",
+			"table": "subscription_token"
+		}
+	],
+	"renames": []
+}

@@ -20,8 +20,8 @@ export const generateAuthToken = async (
 ): Promise<Result<string, 'EXISTING_UNEXPIRED_TOKEN'>> => {
 	const tokenRecords = await getSubscriptionTokenRecordBySubscriptionId(env.NewslettersD1, tokenType, subscription_id);
 
-	if (tokenRecords.success && tokenRecords.results.length > 0) {
-		const existingUnexpiredToken = tokenRecords.results.find((token) => !isTimeExpired(Number(token.expires_at) - TOKEN_EXPIRES_IN / 2));
+	if (tokenRecords.length > 0) {
+		const existingUnexpiredToken = tokenRecords.find((token) => !isTimeExpired(token.expires_at - TOKEN_EXPIRES_IN / 2));
 
 		// Prevent generating new tokens if they already have a token that was recently generated.
 		if (existingUnexpiredToken) {
@@ -30,7 +30,7 @@ export const generateAuthToken = async (
 
 		// Overwise, delete all previous tokens of same type because we're going to give them a new one.
 		// This is to prevent the user from having multiple tokens of the same type.
-		for (const existingToken of tokenRecords.results) {
+		for (const existingToken of tokenRecords) {
 			await deleteSubscriptionTokenRecordByToken(env.NewslettersD1, existingToken.id);
 		}
 	}
@@ -38,7 +38,7 @@ export const generateAuthToken = async (
 	const token = generateId(63);
 	await insertSubscriptionTokenRecord(env.NewslettersD1, {
 		id: token,
-		expires_at: BigInt(new Date().getTime()) + BigInt(TOKEN_EXPIRES_IN),
+		expires_at: Date.now() + TOKEN_EXPIRES_IN,
 		token_type: tokenType,
 		subscription_id,
 	});
@@ -62,9 +62,7 @@ export const consumeAuthToken = async (
 	// Delete token after used.
 	await deleteSubscriptionTokenRecordByToken(env.NewslettersD1, token);
 
-	// bigint => number conversion
-	const tokenExpires = Number(record.expires_at);
-	if (isTimeExpired(tokenExpires)) {
+	if (isTimeExpired(record.expires_at)) {
 		return Err('TOKEN_EXPIRED');
 	}
 	return OK(record);

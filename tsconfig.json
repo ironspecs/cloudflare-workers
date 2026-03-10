@@ -1,8 +1,7 @@
 {
 	"extends": "./tsconfig.base.json",
 	"compilerOptions": {
-		"types": ["@cloudflare/workers-types", "@cloudflare/vitest-pool-workers"]
-		// "baseUrl": ".",
-		// "@cloudflare/vitest-pool-workers/config": ["node_modules/@cloudflare/vitest-pool-workers/dist/config/index.d.ts"]
+		"types": ["@cloudflare/workers-types"]
+		// "baseUrl": "."
 	}
 }

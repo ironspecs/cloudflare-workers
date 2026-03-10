@@ -4,31 +4,36 @@
 	"description": "Cloudflare Workers run JavaScript in a V8 environment. They are a serverless platform that allows you to run code at the edge of Cloudflare's network. This means that you can run code in 200+ cities around the world.",
 	"main": "index.js",
 	"scripts": {
-		"prepare": "husky || true",
+		"commitlint": "commitlint",
+		"prepare": "husky",
 		"test": "npm test --workspaces",
 		"prettier": "prettier . --write"
 	},
 	"author": "Dane Stuckel",
 	"license": "ISC",
 	"workspaces": [
-		"api-keys",
-		"static-sites",
 		"newsletters"
 	],
 	"lint-staged": {
 		"**/*": "prettier . --write"
 	},
 	"dependencies": {
-		"valibot": "^0.37.0"
+		"drizzle-orm": "1.0.0-beta.16-ea816b6",
+		"valibot": "^1.2.0"
 	},
 	"devDependencies": {
-		"@cloudflare/workers-types": "^4.20240725.0",
-		"@cloudflare/vitest-pool-workers": "^0.4.17",
-		"husky": "^9.1.4",
-		"tslib": "^2.6.3",
-		"typescript": "^5.5.4",
-		"vitest": "^2.0.5",
-		"wrangler": "^3.68.0",
-		"prettier": "^3.3.3"
+		"@commitlint/cli": "^20.1.0",
+		"@commitlint/config-conventional": "^20.0.0",
+		"@cloudflare/workers-types": "^4.20260310.1",
+		"@vitest/coverage-v8": "^3.2.4",
+		"drizzle-kit": "1.0.0-beta.16-ea816b6",
+		"husky": "^9.1.7",
+		"lint-staged": "^16.3.3",
+		"tslib": "^2.8.1",
+		"typescript": "^5.9.3",
+		"vitest": "^3.2.4",
+		"wrangler": "^4.71.0",
+		"yaml": "^2.8.1",
+		"prettier": "^3.8.1"
 	}
 }

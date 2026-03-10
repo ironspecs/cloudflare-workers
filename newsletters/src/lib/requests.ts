@@ -1,4 +1,5 @@
-import { BaseSchema, Output, safeParseAsync } from 'valibot';
+import type { GenericSchema, InferOutput } from 'valibot';
+import { safeParseAsync } from 'valibot';
 import { Err, OK, Result } from './results';
 import { Env } from '../common';
 import { createJSONResponse } from './responses';
@@ -19,7 +20,7 @@ const getRequestBodyData = async (
 ): Promise<Result<Record<string, unknown> | null, 'INVALID_JSON' | 'INVALID_FORMDATA'>> => {
 	const contentType = request.headers.get('content-type');
 
-	if (contentType === 'application/json') {
+	if (contentType?.startsWith('application/json')) {
 		try {
 			return OK(await request.json());
 		} catch (e: unknown) {
@@ -27,7 +28,7 @@ const getRequestBodyData = async (
 		}
 	}
 
-	if (contentType === 'application/x-www-form-urlencoded') {
+	if (contentType?.startsWith('application/x-www-form-urlencoded')) {
 		try {
 			const formData = await request.formData();
 			const data: Record<string, unknown> = {};
@@ -44,34 +45,45 @@ const getRequestBodyData = async (
 	return OK(null);
 };
 
-/**
- * Create a request handler in a standard way for the project.
- */
-export const handle = <T extends BaseSchema, R, E>(
+export type ParseRequestError = 'INVALID_FORMDATA' | 'INVALID_JSON' | string[];
+
+export const parseRequest = async <T extends GenericSchema>(
+	request: Request,
 	schema: T,
-	handler: (request: Request, env: Env, data: Output<T>) => Promise<Result<R, E>>,
+): Promise<Result<InferOutput<T>, ParseRequestError>> => {
+	const requestQueryResult = await getRequestQueryData(request);
+	if (!requestQueryResult.success) {
+		return requestQueryResult;
+	}
+
+	const requestDataResult = await getRequestBodyData(request);
+	if (!requestDataResult.success) {
+		return requestDataResult;
+	}
+
+	const parsedResult = await safeParseAsync(schema, {
+		query: requestQueryResult.value,
+		body: requestDataResult.value,
+	});
+
+	if (!parsedResult.success) {
+		return Err(parsedResult.issues.map((issue) => issue.message));
+	}
+
+	return OK(parsedResult.output);
+};
+
+export const handle = <T extends GenericSchema, R, E>(
+	schema: T,
+	handler: (request: Request, env: Env, data: InferOutput<T>) => Promise<Result<R, E>>,
 ) => {
 	return async (request: Request, env: Env): Promise<Response> => {
-		const requestQueryResult = await getRequestQueryData(request);
-		if (!requestQueryResult.success) {
-			return createJSONResponse(requestQueryResult, 400);
-		}
-
-		const requestDataResult = await getRequestBodyData(request);
-		if (!requestDataResult.success) {
-			return createJSONResponse(requestDataResult, 400);
-		}
-
-		const parsedResult = await safeParseAsync(schema, {
-			query: requestQueryResult.value,
-			body: requestDataResult.value,
-		});
-
+		const parsedResult = await parseRequest(request, schema);
 		if (!parsedResult.success) {
-			return createJSONResponse({ ok: false, error: parsedResult.issues.map((issue) => issue.message) }, 400);
+			return createJSONResponse({ ok: false, error: parsedResult.error }, 400);
 		}
 
-		const result = await handler(request, env, parsedResult);
+		const result = await handler(request, env, parsedResult.value);
 		return createJSONResponse(result, result.success ? 200 : 400);
 	};
 };
