@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { createSign, generateKeyPairSync } from 'node:crypto';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import http from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -14,6 +16,7 @@ const testHostname = 'example.com';
 const localOriginHostname = '127.0.0.1';
 const testTurnstileSiteKey = '1x00000000000000000000AA';
 const testDekKekId = 'kek202603101900';
+const testJwksKid = 'test-rs256-key';
 const testKeksJson = JSON.stringify({
 	active_id: testDekKekId,
 	keys: {
@@ -22,6 +25,68 @@ const testKeksJson = JSON.stringify({
 });
 const testDekWrapped = 'v1.U+JvHS9wSuC747CG.MhLYqrtoU3looBKOyyjGeAf2/7GlXB6uuQ5o66oD5k44Zux2O3e4Z2tOfXDbivXOFPSi6ds/S082vxSK';
 const testTurnstileSecretCiphertext = 'v1.DkN/GUS12go12qyj.AZJae9HJFXg5IS57zL6bngrN88JWH2uytYp+sSNwMt/BYQfknlbcY/JHCUC6YBnRgm+Z';
+const toBase64Url = (value) => Buffer.from(value).toString('base64url');
+
+const createSignedJwt = (privateKey, payload) => {
+	const header = {
+		alg: 'RS256',
+		kid: testJwksKid,
+		typ: 'JWT',
+	};
+	const signingInput = `${toBase64Url(JSON.stringify(header))}.${toBase64Url(JSON.stringify(payload))}`;
+	const signature = createSign('RSA-SHA256').update(signingInput).end().sign(privateKey).toString('base64url');
+	return `${signingInput}.${signature}`;
+};
+
+const createJwksServer = async () => {
+	const { privateKey, publicKey } = generateKeyPairSync('rsa', {
+		modulusLength: 2048,
+	});
+	const publicJwk = publicKey.export({ format: 'jwk' });
+	const jwksPayload = JSON.stringify({
+		keys: [
+			{
+				...publicJwk,
+				alg: 'RS256',
+				kid: testJwksKid,
+				use: 'sig',
+			},
+		],
+	});
+	const server = http.createServer((request, response) => {
+		if (request.url !== '/.well-known/jwks.json') {
+			response.writeHead(404);
+			response.end();
+			return;
+		}
+
+		response.writeHead(200, {
+			'cache-control': 'public, max-age=60',
+			'content-type': 'application/json',
+		});
+		response.end(jwksPayload);
+	});
+
+	await new Promise((resolveListen, rejectListen) => {
+		server.once('error', rejectListen);
+		server.listen(0, '127.0.0.1', () => resolveListen(undefined));
+	});
+
+	const address = server.address();
+	if (!address || typeof address === 'string') {
+		server.close();
+		throw new Error('Unable to start JWKS server');
+	}
+
+	return {
+		close: () =>
+			new Promise((resolveClose) => {
+				server.close(() => resolveClose(undefined));
+			}),
+		createToken: (payload) => createSignedJwt(privateKey, payload),
+		jwksUrl: `http://127.0.0.1:${address.port}/.well-known/jwks.json`,
+	};
+};
 
 const assertSubscriptionCount = async (stateDir, expectedCount) => {
 	const { stdout } = await runCommand(
@@ -120,6 +185,7 @@ const main = async () => {
 	const envFilePath = join(stateDir, '.dev.vars');
 	const port = await getAvailablePort();
 	const baseUrl = `http://127.0.0.1:${port}`;
+	const jwksServer = await createJwksServer();
 
 	try {
 		await writeFile(envFilePath, `HOSTNAME_CONFIG_KEKS_JSON=${testKeksJson}\n`, 'utf8');
@@ -139,7 +205,7 @@ const main = async () => {
 				'--persist-to',
 				stateDir,
 				'--command',
-				`INSERT INTO hostname_config (hostname, turnstile_site_key) VALUES ('${testHostname}', '${testTurnstileSiteKey}');`,
+				`INSERT INTO hostname_config (hostname, jwks_url, turnstile_site_key) VALUES ('${testHostname}', '${jwksServer.jwksUrl}', '${testTurnstileSiteKey}');`,
 			],
 			workspaceDir,
 		);
@@ -154,7 +220,7 @@ const main = async () => {
 				'--persist-to',
 				stateDir,
 				'--command',
-				`INSERT INTO hostname_config (hostname, turnstile_site_key) VALUES ('localhost', NULL), ('${localOriginHostname}', NULL);`,
+				`INSERT INTO hostname_config (hostname, jwks_url, turnstile_site_key) VALUES ('localhost', NULL, NULL), ('${localOriginHostname}', NULL, NULL);`,
 			],
 			workspaceDir,
 		);
@@ -238,6 +304,31 @@ const main = async () => {
 			assert.equal(typeof sessionPayload.value.submitToken, 'string');
 			assert.equal(sessionPayload.value.siteKey, testTurnstileSiteKey);
 
+			const apiToken = jwksServer.createToken({
+				exp: Math.floor(Date.now() / 1000) + 300,
+				sub: 'service-client',
+			});
+			const subscribersResponse = await fetch(`${baseUrl}/api/subscribers?hostname=${encodeURIComponent(testHostname)}`, {
+				method: 'GET',
+				headers: {
+					authorization: `Bearer ${apiToken}`,
+				},
+			});
+			assert.equal(subscribersResponse.status, 200);
+			assert.deepEqual(await subscribersResponse.json(), {
+				success: true,
+				value: [],
+			});
+
+			const missingAuthorizationResponse = await fetch(`${baseUrl}/api/subscribers?hostname=${encodeURIComponent(testHostname)}`, {
+				method: 'GET',
+			});
+			assert.equal(missingAuthorizationResponse.status, 401);
+			assert.deepEqual(await missingAuthorizationResponse.json(), {
+				error: 'INVALID_AUTHORIZATION',
+				success: false,
+			});
+
 			const subscribeResponse = await fetch(`${baseUrl}/subscribe`, {
 				method: 'POST',
 				headers: {
@@ -258,6 +349,35 @@ const main = async () => {
 				value: 'SUBSCRIBED',
 			});
 			await assertSubscriptionCount(stateDir, 1);
+
+			const listedSubscribersResponse = await fetch(`${baseUrl}/api/subscribers?hostname=${encodeURIComponent(testHostname)}`, {
+				method: 'GET',
+				headers: {
+					authorization: `Bearer ${apiToken}`,
+				},
+			});
+			assert.equal(listedSubscribersResponse.status, 200);
+			const listedSubscribersPayload = await listedSubscribersResponse.json();
+			assert.equal(listedSubscribersPayload.success, true);
+			assert.equal(listedSubscribersPayload.value.length, 1);
+			assert.equal(listedSubscribersPayload.value[0].email, 'person@softwarepatterns.com');
+			assert.equal(listedSubscribersPayload.value[0].hostname, testHostname);
+
+			const deleteSubscriberResponse = await fetch(
+				`${baseUrl}/api/subscribers/${listedSubscribersPayload.value[0].id}?hostname=${encodeURIComponent(testHostname)}`,
+				{
+					method: 'DELETE',
+					headers: {
+						authorization: `Bearer ${apiToken}`,
+					},
+				},
+			);
+			assert.equal(deleteSubscriberResponse.status, 200);
+			assert.deepEqual(await deleteSubscriberResponse.json(), {
+				success: true,
+				value: 'DELETED',
+			});
+			await assertSubscriptionCount(stateDir, 0);
 
 			const localSessionResponse = await fetch(`${baseUrl}/newsletters/session`, {
 				method: 'POST',
@@ -295,7 +415,7 @@ const main = async () => {
 				success: true,
 				value: 'SINK_ACCEPTED',
 			});
-			await assertSubscriptionCount(stateDir, 1);
+			await assertSubscriptionCount(stateDir, 0);
 
 			const reusedSessionResponse = await fetch(`${baseUrl}/subscribe`, {
 				method: 'POST',
@@ -317,7 +437,7 @@ const main = async () => {
 				success: true,
 				value: 'SUBSCRIBED',
 			});
-			await assertSubscriptionCount(stateDir, 2);
+			await assertSubscriptionCount(stateDir, 1);
 
 			const unknownHostnameResponse = await fetch(`${baseUrl}/newsletters/session`, {
 				method: 'POST',
@@ -349,6 +469,7 @@ const main = async () => {
 			await new Promise((resolveExit) => devServer.once('exit', resolveExit));
 		}
 	} finally {
+		await jwksServer.close();
 		await rm(stateDir, { force: true, recursive: true });
 	}
 };

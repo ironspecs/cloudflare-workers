@@ -2,6 +2,7 @@ import { integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core
 
 export const hostname_config = sqliteTable('hostname_config', {
 	hostname: text('hostname').notNull().primaryKey(),
+	jwks_url: text('jwks_url'),
 	turnstile_site_key: text('turnstile_site_key'),
 });
 

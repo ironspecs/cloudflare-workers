@@ -117,8 +117,12 @@ const buildHostnameSecretsSql = async (config) => {
 			throw new Error(`Invalid turnstile config for ${hostname}`);
 		}
 
+		const jwksUrl = values.jwks_url;
 		const siteKey = values.site_key;
 		const secretKey = values.secret_key;
+		if (jwksUrl !== undefined && typeof jwksUrl !== 'string') {
+			throw new Error(`Invalid jwks_url for ${hostname}`);
+		}
 		if (typeof siteKey !== 'string' || typeof secretKey !== 'string') {
 			throw new Error(`Missing turnstile keys for ${hostname}`);
 		}
@@ -128,7 +132,7 @@ const buildHostnameSecretsSql = async (config) => {
 		const turnstileSecretCiphertext = await encryptString(dek, secretKey, createEnvelopeAad(hostname, 'turnstile_secret_key'));
 
 		statements.push(
-			`INSERT INTO hostname_config (hostname, turnstile_site_key) VALUES (${sqlString(hostname)}, ${sqlString(siteKey)}) ON CONFLICT(hostname) DO UPDATE SET turnstile_site_key = excluded.turnstile_site_key;`,
+			`INSERT INTO hostname_config (hostname, jwks_url, turnstile_site_key) VALUES (${sqlString(hostname)}, ${jwksUrl ? sqlString(jwksUrl) : 'NULL'}, ${sqlString(siteKey)}) ON CONFLICT(hostname) DO UPDATE SET jwks_url = excluded.jwks_url, turnstile_site_key = excluded.turnstile_site_key;`,
 		);
 		statements.push(
 			`INSERT INTO hostname_config_secrets (hostname, dek_kek_id, dek_wrapped, turnstile_secret_key_ciphertext) VALUES (${sqlString(hostname)}, ${sqlString(config.keks.active_id)}, ${sqlString(dekWrapped)}, ${sqlString(turnstileSecretCiphertext)}) ON CONFLICT(hostname) DO UPDATE SET dek_kek_id = excluded.dek_kek_id, dek_wrapped = excluded.dek_wrapped, turnstile_secret_key_ciphertext = excluded.turnstile_secret_key_ciphertext;`,
@@ -137,7 +141,7 @@ const buildHostnameSecretsSql = async (config) => {
 
 	for (const hostname of reservedSinkHostnames) {
 		statements.push(
-			`INSERT INTO hostname_config (hostname, turnstile_site_key) VALUES (${sqlString(hostname)}, NULL) ON CONFLICT(hostname) DO NOTHING;`,
+			`INSERT INTO hostname_config (hostname, jwks_url, turnstile_site_key) VALUES (${sqlString(hostname)}, NULL, NULL) ON CONFLICT(hostname) DO NOTHING;`,
 		);
 	}
 
@@ -168,7 +172,7 @@ const main = async () => {
 			'--remote',
 			'--json',
 			'--command',
-			'SELECT hostname, turnstile_site_key FROM hostname_config ORDER BY hostname;',
+			'SELECT hostname, jwks_url, turnstile_site_key FROM hostname_config ORDER BY hostname;',
 		]);
 
 		process.stdout.write(stdout);

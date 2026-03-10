@@ -54,4 +54,16 @@ describe('logError', () => {
 			route: '/subscribe',
 		});
 	});
+
+	it('logs string errors as UnknownError values', () => {
+		const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+		logError('newsletter_insert_failed', 'boom');
+
+		expect(spy).toHaveBeenCalledWith({
+			error_message: 'boom',
+			error_name: 'UnknownError',
+			event: 'newsletter_insert_failed',
+		});
+	});
 });

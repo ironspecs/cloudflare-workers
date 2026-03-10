@@ -41,6 +41,7 @@ describe('getTurnstileSiteKey', () => {
 	it('returns the hostname site key', async () => {
 		vi.mocked(hostnameConfigRecords.getHostnameConfigByHostname).mockResolvedValue({
 			hostname: 'example.com',
+			jwks_url: 'https://auth.inbox-manager.com/.well-known/jwks.json',
 			turnstile_site_key: 'site-key',
 		});
 

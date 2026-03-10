@@ -26,6 +26,7 @@ const env = {
 
 const liveHostnameConfig = {
 	hostname: 'softwarepatterns.com',
+	jwks_url: 'https://auth.inbox-manager.com/.well-known/jwks.json',
 	turnstile_site_key: 'site-key',
 };
 
@@ -37,6 +38,7 @@ describe('subscribe', () => {
 	it('sinks localhost subscriptions without writing them', async () => {
 		vi.mocked(hostnameConfigs.getHostnameConfigByHostname).mockResolvedValue({
 			hostname: 'localhost',
+			jwks_url: null,
 			turnstile_site_key: null,
 		});
 
@@ -56,6 +58,7 @@ describe('subscribe', () => {
 	it('does not sink real mailbox-provider email domains', async () => {
 		vi.mocked(hostnameConfigs.getHostnameConfigByHostname).mockResolvedValue({
 			hostname: 'softwarepatterns.com',
+			jwks_url: 'https://auth.inbox-manager.com/.well-known/jwks.json',
 			turnstile_site_key: 'site-key',
 		});
 		vi.mocked(crypto.generateId).mockReturnValue('gmail-id');
@@ -123,6 +126,7 @@ describe('unsubscribe', () => {
 	it('sinks localhost unsubscribe requests without reading subscriptions', async () => {
 		vi.mocked(hostnameConfigs.getHostnameConfigByHostname).mockResolvedValue({
 			hostname: '127.0.0.1',
+			jwks_url: null,
 			turnstile_site_key: null,
 		});
 

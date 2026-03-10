@@ -1,5 +1,5 @@
 import type { D1Database } from '@cloudflare/workers-types';
-import { and, eq } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import { Subset } from '../common';
 import { getDb } from '../lib/drizzle';
 import { subscription } from './schema';
@@ -45,6 +45,20 @@ const toSubscriptionRecord = (row: SubscriptionRow): SubscriptionRecord => {
 export const getSubscriptionRecordById = async (db: D1Database, id: string): Promise<SubscriptionRecord | null> => {
 	const records = await getDb(db).select().from(subscription).where(eq(subscription.id, id)).limit(1);
 	return records[0] ? toSubscriptionRecord(records[0]) : null;
+};
+
+export const listSubscriptionRecordsByHostname = async (
+	db: D1Database,
+	options: {
+		hostname: string;
+		list_name?: string;
+	},
+): Promise<SubscriptionRecord[]> => {
+	const whereClause = options.list_name
+		? and(eq(subscription.hostname, options.hostname), eq(subscription.list_name, options.list_name))
+		: eq(subscription.hostname, options.hostname);
+	const records = await getDb(db).select().from(subscription).where(whereClause).orderBy(asc(subscription.created_at));
+	return records.map(toSubscriptionRecord);
 };
 
 export const insertSubscriptionRecord = async (db: D1Database, options: InsertSubscriptionOptions): Promise<void> => {

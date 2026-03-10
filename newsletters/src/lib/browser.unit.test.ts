@@ -54,6 +54,7 @@ describe('getBrowserRequestContext', () => {
 	it('returns a known hostname context', async () => {
 		vi.mocked(hostnameConfigs.getHostnameConfigByHostname).mockResolvedValue({
 			hostname: 'example.com',
+			jwks_url: 'https://auth.inbox-manager.com/.well-known/jwks.json',
 			turnstile_site_key: 'site-key',
 		});
 
@@ -69,6 +70,7 @@ describe('getBrowserRequestContext', () => {
 				hostname: 'example.com',
 				hostnameConfig: {
 					hostname: 'example.com',
+					jwks_url: 'https://auth.inbox-manager.com/.well-known/jwks.json',
 					turnstile_site_key: 'site-key',
 				},
 				origin: 'https://example.com',
@@ -79,6 +81,7 @@ describe('getBrowserRequestContext', () => {
 	it('rejects hostname mismatches', async () => {
 		vi.mocked(hostnameConfigs.getHostnameConfigByHostname).mockResolvedValue({
 			hostname: 'example.com',
+			jwks_url: 'https://auth.inbox-manager.com/.well-known/jwks.json',
 			turnstile_site_key: 'site-key',
 		});
 
@@ -111,6 +114,7 @@ describe('getBrowserRequestContext', () => {
 	it('keeps requiring a real row for localhost', async () => {
 		vi.mocked(hostnameConfigs.getHostnameConfigByHostname).mockResolvedValue({
 			hostname: 'localhost',
+			jwks_url: null,
 			turnstile_site_key: null,
 		});
 
@@ -126,6 +130,7 @@ describe('getBrowserRequestContext', () => {
 				hostname: 'localhost',
 				hostnameConfig: {
 					hostname: 'localhost',
+					jwks_url: null,
 					turnstile_site_key: null,
 				},
 				origin: 'http://localhost:4173',

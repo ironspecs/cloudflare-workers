@@ -2,6 +2,8 @@
 
 `newsletters` is a Cloudflare Worker for collecting newsletter signups from approved hostnames. It serves an embeddable browser script, opens a Turnstile-protected signup dialog, validates the request against a known hostname, and stores subscriptions in D1.
 
+The route layer uses `Hono`, but the security and business logic stay in small local modules under `src/lib` and `src/domain`.
+
 ## Why This Exists
 
 This service exists so multiple websites can share one newsletter signup backend without each site re-implementing:
@@ -24,7 +26,7 @@ These are the steps to connect a site such as `softwarepatterns.com`.
 `config-enc.yaml` stores:
 
 - KEKs under `keks`
-- per-hostname Turnstile config under `turnstile.hostnames`
+- per-hostname public and secret config under `turnstile.hostnames`
 
 Example shape:
 
@@ -37,6 +39,7 @@ keks:
 turnstile:
   hostnames:
     softwarepatterns.com:
+      jwks_url: https://auth.inbox-manager.com/.well-known/jwks.json
       site_key: <turnstile-site-key>
       secret_key: <turnstile-secret-key>
 ```
@@ -171,6 +174,81 @@ Same protection model as `/subscribe`, but marks a record unsubscribed.
 
 Aliases for `/subscribe` and `/unsubscribe`.
 
+### `GET /api/subscribers`
+
+Returns all subscribers for the authenticated hostname.
+
+Headers:
+
+- `Authorization: Bearer <jwt>`
+
+Query:
+
+```text
+hostname=softwarepatterns.com
+list_name=weekly
+```
+
+Success response:
+
+```json
+{
+	"success": true,
+	"value": [
+		{
+			"id": "abc123",
+			"email": "person@example.com",
+			"hostname": "softwarepatterns.com",
+			"list_name": "weekly",
+			"person_name": "Ada Lovelace",
+			"created_at": "2026-03-10T15:00:00.000Z",
+			"email_confirmed_at": null,
+			"unsubscribed_at": null
+		}
+	]
+}
+```
+
+Failure responses include:
+
+- `UNKNOWN_HOSTNAME`
+- `JWT_NOT_CONFIGURED`
+- `INVALID_AUTHORIZATION`
+- `INVALID_JWT`
+- `RATE_LIMITED`
+
+### `DELETE /api/subscribers/:id`
+
+Hard-deletes one subscriber record for the authenticated hostname.
+
+Headers:
+
+- `Authorization: Bearer <jwt>`
+
+Query:
+
+```text
+hostname=softwarepatterns.com
+```
+
+Success response:
+
+```json
+{
+	"success": true,
+	"value": "DELETED"
+}
+```
+
+Failure responses include:
+
+- `UNKNOWN_HOSTNAME`
+- `NOT_FOUND`
+- `JWT_NOT_CONFIGURED`
+- `INVALID_AUTHORIZATION`
+- `INVALID_JWT`
+- `RATE_LIMITED`
+
 ### `GET /verify`, `GET /confirm`, `POST /confirm/send`
 
 These endpoints are currently explicit stubs and return `EMAIL_CONFIRMATION_DISABLED`.
@@ -180,6 +258,12 @@ These endpoints are currently explicit stubs and return `EMAIL_CONFIRMATION_DISA
 ### How Encryption Works
 
 Public hostname data lives in `hostname_config`.
+
+That table currently includes:
+
+- `hostname`
+- `jwks_url`
+- `turnstile_site_key`
 
 Secret hostname data lives in `hostname_config_secrets`, keyed by the same hostname:
 
@@ -210,7 +294,9 @@ It also scales better than one large env JSON map for hundreds of hostnames.
 ### Important Files
 
 - [newsletters/src/index.ts](/Users/dane/Projects/ironspecs/cloudflare-workers/newsletters/src/index.ts): worker routes
+- [newsletters/src/domain/api-subscribers.ts](/Users/dane/Projects/ironspecs/cloudflare-workers/newsletters/src/domain/api-subscribers.ts): authenticated subscriber list and delete logic
 - [newsletters/src/lib/embed-script.ts](/Users/dane/Projects/ironspecs/cloudflare-workers/newsletters/src/lib/embed-script.ts): browser embed script
+- [newsletters/src/lib/service-auth.ts](/Users/dane/Projects/ironspecs/cloudflare-workers/newsletters/src/lib/service-auth.ts): trusted service JWT verification via JWKS
 - [newsletters/src/lib/turnstile.ts](/Users/dane/Projects/ironspecs/cloudflare-workers/newsletters/src/lib/turnstile.ts): Turnstile verification
 - [newsletters/src/lib/newsletter-sessions.ts](/Users/dane/Projects/ironspecs/cloudflare-workers/newsletters/src/lib/newsletter-sessions.ts): signed submit-token flow
 - [newsletters/scripts/sync-cloudflare-config.mjs](/Users/dane/Projects/ironspecs/cloudflare-workers/newsletters/scripts/sync-cloudflare-config.mjs): Cloudflare config sync
@@ -245,8 +331,9 @@ The integration test:
 
 - creates a temporary local D1 database
 - seeds hostname and encrypted hostname-secret rows
+- starts a temporary local JWKS server
 - starts `wrangler dev`
-- exercises the real HTTP flow end-to-end
+- exercises the real browser and `/api/subscribers` HTTP flows end-to-end
 
 ## Use This As A Template
 

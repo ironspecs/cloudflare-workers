@@ -4,6 +4,7 @@
  */
 CREATE TABLE hostname_config (
 	hostname VARCHAR(127) NOT NULL PRIMARY KEY,
+	jwks_url TEXT,
 	turnstile_site_key VARCHAR(127)
 );
 CREATE TABLE hostname_config_secrets (

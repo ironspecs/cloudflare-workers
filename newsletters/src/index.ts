@@ -1,25 +1,24 @@
+import { Hono } from 'hono';
+import type { GenericSchema, InferOutput } from 'valibot';
 import { safeParseAsync } from 'valibot';
 import { email as validEmail, object, optional, picklist, pipe, string } from 'valibot';
 import type { Env } from './common';
 import htmlContent from '../examples/local-embed/index.html';
 import { getHostnameConfigByHostname } from './db/hostname-config-records';
+import type { SubscriptionRecord } from './db/subscription-records';
+import { deleteApiSubscriber, listApiSubscribers } from './domain/api-subscribers';
 import { subscribe, unsubscribe } from './domain/subscriptions';
 import { getBrowserRequestContext } from './lib/browser';
 import { createEmbedScript } from './lib/embed-script';
 import { logError } from './lib/log';
 import { createNewsletterSession, NewsletterSessionAction, validateNewsletterSession } from './lib/newsletter-sessions';
 import { parseRequest } from './lib/requests';
-import {
-	createHTMLResponse,
-	createJSONResponse,
-	createJavaScriptResponse,
-	createMethodNotAllowedResponse,
-	createNotFoundResponse,
-} from './lib/responses';
+import { createHTMLResponse, createJSONResponse, createJavaScriptResponse, createMethodNotAllowedResponse } from './lib/responses';
 import { applyRateLimit, getRateLimitKey } from './lib/rate-limit';
+import { authorizeServiceRequest, type ServiceAuthError } from './lib/service-auth';
 import { getTurnstileSiteKey, verifyTurnstileToken } from './lib/turnstile';
 
-type RouteHandler = (request: Request, env: Env) => Promise<Response>;
+const app = new Hono<{ Bindings: Env }>();
 
 const newsletterSessionSchema = object({
 	query: object({}),
@@ -44,6 +43,15 @@ const verifyQuerySchema = object({
 	hostname: string(),
 });
 
+const apiSubscribersQuerySchema = object({
+	hostname: string(),
+	list_name: optional(string()),
+});
+
+const apiDeleteSubscriberQuerySchema = object({
+	hostname: string(),
+});
+
 const createErrorResponse = (error: string | string[], status: number, headers?: HeadersInit) =>
 	createJSONResponse({ error, success: false }, status, headers);
 
@@ -63,14 +71,63 @@ const applyBrowserRateLimit = async (binding: Env['SESSION_RATE_LIMIT'], request
 	return rateLimitResult.success ? null : createErrorResponse(rateLimitResult.error, 429, headers);
 };
 
-const getVerifyHostname = async (request: Request) => {
+const parseQuery = async <T extends GenericSchema>(request: Request, schema: T): Promise<Awaited<ReturnType<typeof safeParseAsync<T>>>> => {
 	const url = new URL(request.url);
 	const query: Record<string, string> = {};
 	for (const [key, value] of url.searchParams.entries()) {
 		query[key] = value;
 	}
 
-	return safeParseAsync(verifyQuerySchema, query);
+	return safeParseAsync(schema, query);
+};
+
+const serializeSubscriptionRecord = (record: SubscriptionRecord) => {
+	return {
+		created_at: record.created_at?.toISOString() ?? null,
+		email: record.email,
+		email_confirmed_at: record.email_confirmed_at?.toISOString() ?? null,
+		hostname: record.hostname,
+		id: record.id,
+		list_name: record.list_name,
+		person_name: record.person_name,
+		unsubscribed_at: record.unsubscribed_at?.toISOString() ?? null,
+	};
+};
+
+const getKnownHostnameConfig = async (env: Env, hostname: string) => {
+	return getHostnameConfigByHostname(env.NewslettersD1, hostname.toLowerCase());
+};
+
+const serviceAuthStatusCodes: Record<ServiceAuthError, number> = {
+	INVALID_AUTHORIZATION: 401,
+	INVALID_JWT: 403,
+	JWT_NOT_CONFIGURED: 403,
+};
+
+const authorizeApiHostnameRequest = async (request: Request, env: Env, hostname: string) => {
+	const normalizedHostname = hostname.toLowerCase();
+	const hostnameConfig = await getKnownHostnameConfig(env, normalizedHostname);
+	if (hostnameConfig === null) {
+		return createErrorResponse('UNKNOWN_HOSTNAME', 403);
+	}
+
+	const rateLimitResult = await applyRateLimit(env.VERIFY_RATE_LIMIT, getRateLimitKey(request, normalizedHostname));
+	if (!rateLimitResult.success) {
+		return createErrorResponse(rateLimitResult.error, 429);
+	}
+
+	const authResult = await authorizeServiceRequest(env, {
+		hostnameConfig,
+		request,
+	});
+	if (!authResult.success) {
+		return createErrorResponse(authResult.error, serviceAuthStatusCodes[authResult.error]);
+	}
+
+	return {
+		hostname: normalizedHostname,
+		payload: authResult.value.payload,
+	};
 };
 
 const handleNewslettersScript = async (): Promise<Response> => {
@@ -170,16 +227,30 @@ const handleProtectedSubscription = async (
 		);
 	}
 
-	const result = await handler(env, parsedRequest.value.body);
-	return createResultResponse(result, browserContext.value.corsHeaders);
+	return createResultResponse(await handler(env, parsedRequest.value.body), browserContext.value.corsHeaders);
 };
 
-const handleSubscribe = async (request: Request, env: Env): Promise<Response> => {
-	return handleProtectedSubscription(request, env, NewsletterSessionAction.Subscribe, subscribe);
-};
+const handleDisabledConfirmationRead = async (request: Request, env: Env): Promise<Response> => {
+	const parsedQuery = await parseQuery(request, verifyQuerySchema);
+	if (!parsedQuery.success) {
+		return createErrorResponse(
+			parsedQuery.issues.map((issue) => issue.message),
+			400,
+		);
+	}
 
-const handleUnsubscribe = async (request: Request, env: Env): Promise<Response> => {
-	return handleProtectedSubscription(request, env, NewsletterSessionAction.Unsubscribe, unsubscribe);
+	const output = parsedQuery.output as InferOutput<typeof verifyQuerySchema>;
+	const hostnameConfig = await getKnownHostnameConfig(env, output.hostname);
+	if (hostnameConfig === null) {
+		return createErrorResponse('UNKNOWN_HOSTNAME', 403);
+	}
+
+	const rateLimitResult = await applyRateLimit(env.VERIFY_RATE_LIMIT, getRateLimitKey(request, output.hostname));
+	if (!rateLimitResult.success) {
+		return createErrorResponse(rateLimitResult.error, 429);
+	}
+
+	return createErrorResponse('EMAIL_CONFIRMATION_DISABLED', 501);
 };
 
 const handleDisabledConfirmationWrite = async (request: Request, env: Env): Promise<Response> => {
@@ -201,28 +272,6 @@ const handleDisabledConfirmationWrite = async (request: Request, env: Env): Prom
 	return createErrorResponse('EMAIL_CONFIRMATION_DISABLED', 501, browserContext.value.corsHeaders);
 };
 
-const handleDisabledConfirmationRead = async (request: Request, env: Env): Promise<Response> => {
-	const parsedQuery = await getVerifyHostname(request);
-	if (!parsedQuery.success) {
-		return createErrorResponse(
-			parsedQuery.issues.map((issue) => issue.message),
-			400,
-		);
-	}
-
-	const hostnameConfig = await getHostnameConfigByHostname(env.NewslettersD1, parsedQuery.output.hostname);
-	if (hostnameConfig === null) {
-		return createErrorResponse('UNKNOWN_HOSTNAME', 403);
-	}
-
-	const rateLimitResult = await applyRateLimit(env.VERIFY_RATE_LIMIT, getRateLimitKey(request, parsedQuery.output.hostname));
-	if (!rateLimitResult.success) {
-		return createErrorResponse(rateLimitResult.error, 429);
-	}
-
-	return createErrorResponse('EMAIL_CONFIRMATION_DISABLED', 501);
-};
-
 const handleOptions = async (request: Request, env: Env): Promise<Response> => {
 	const browserContext = await getBrowserRequestContext(env, request);
 	if (!browserContext.success) {
@@ -232,70 +281,95 @@ const handleOptions = async (request: Request, env: Env): Promise<Response> => {
 	return createOptionsResponse(browserContext.value.corsHeaders);
 };
 
-const routes = {
-	'/confirm': {
-		get: handleDisabledConfirmationRead,
-	},
-	'/confirm/send': {
-		options: handleOptions,
-		post: handleDisabledConfirmationWrite,
-	},
-	'/join': {
-		options: handleOptions,
-		post: handleSubscribe,
-	},
-	'/leave': {
-		options: handleOptions,
-		post: handleUnsubscribe,
-	},
-	'/subscribe': {
-		options: handleOptions,
-		post: handleSubscribe,
-	},
-	'/unsubscribe': {
-		options: handleOptions,
-		post: handleUnsubscribe,
-	},
-	'/verify': {
-		get: handleDisabledConfirmationRead,
-	},
-	'/newsletters.js': {
-		get: handleNewslettersScript,
-	},
-	'/newsletters/session': {
-		options: handleOptions,
-		post: handleNewslettersSession,
-	},
-} as Record<string, Record<string, RouteHandler>>;
+const handleApiSubscribersList = async (request: Request, env: Env): Promise<Response> => {
+	const parsedQuery = await parseQuery(request, apiSubscribersQuerySchema);
+	if (!parsedQuery.success) {
+		return createErrorResponse(
+			parsedQuery.issues.map((issue) => issue.message),
+			400,
+		);
+	}
+
+	const output = parsedQuery.output as InferOutput<typeof apiSubscribersQuerySchema>;
+	const authResult = await authorizeApiHostnameRequest(request, env, output.hostname);
+	if (authResult instanceof Response) {
+		return authResult;
+	}
+
+	const result = await listApiSubscribers(env, {
+		hostname: authResult.hostname,
+		list_name: parsedQuery.output.list_name,
+	});
+	return createResultResponse(
+		result.success
+			? {
+					success: true,
+					value: result.value.map(serializeSubscriptionRecord),
+				}
+			: result,
+	);
+};
+
+const handleApiSubscriberDelete = async (request: Request, env: Env, id: string): Promise<Response> => {
+	const parsedQuery = await parseQuery(request, apiDeleteSubscriberQuerySchema);
+	if (!parsedQuery.success) {
+		return createErrorResponse(
+			parsedQuery.issues.map((issue) => issue.message),
+			400,
+		);
+	}
+
+	const output = parsedQuery.output as InferOutput<typeof apiDeleteSubscriberQuerySchema>;
+	const authResult = await authorizeApiHostnameRequest(request, env, output.hostname);
+	if (authResult instanceof Response) {
+		return authResult;
+	}
+
+	return createResultResponse(
+		await deleteApiSubscriber(env, {
+			hostname: authResult.hostname,
+			id,
+		}),
+	);
+};
+
+app.get('/', () => createHTMLResponse(htmlContent));
+app.get('/newsletters.js', () => handleNewslettersScript());
+app.post('/newsletters/session', (c) => handleNewslettersSession(c.req.raw, c.env));
+app.options('/newsletters/session', (c) => handleOptions(c.req.raw, c.env));
+app.post('/subscribe', (c) => handleProtectedSubscription(c.req.raw, c.env, NewsletterSessionAction.Subscribe, subscribe));
+app.options('/subscribe', (c) => handleOptions(c.req.raw, c.env));
+app.post('/unsubscribe', (c) => handleProtectedSubscription(c.req.raw, c.env, NewsletterSessionAction.Unsubscribe, unsubscribe));
+app.options('/unsubscribe', (c) => handleOptions(c.req.raw, c.env));
+app.post('/join', (c) => handleProtectedSubscription(c.req.raw, c.env, NewsletterSessionAction.Subscribe, subscribe));
+app.options('/join', (c) => handleOptions(c.req.raw, c.env));
+app.post('/leave', (c) => handleProtectedSubscription(c.req.raw, c.env, NewsletterSessionAction.Unsubscribe, unsubscribe));
+app.options('/leave', (c) => handleOptions(c.req.raw, c.env));
+app.get('/confirm', (c) => handleDisabledConfirmationRead(c.req.raw, c.env));
+app.get('/verify', (c) => handleDisabledConfirmationRead(c.req.raw, c.env));
+app.post('/confirm/send', (c) => handleDisabledConfirmationWrite(c.req.raw, c.env));
+app.options('/confirm/send', (c) => handleOptions(c.req.raw, c.env));
+app.get('/api/subscribers', (c) => handleApiSubscribersList(c.req.raw, c.env));
+app.delete('/api/subscribers/:id', (c) => handleApiSubscriberDelete(c.req.raw, c.env, c.req.param('id')));
+
+app.notFound(() => new Response('Not found', { status: 404 }));
+
+app.onError((error, c) => {
+	logError('newsletter_request_unhandled_error', error, {
+		cf_ray: c.req.header('cf-ray') ?? null,
+		method: c.req.method,
+		origin: c.req.header('Origin') ?? null,
+		pathname: new URL(c.req.url).pathname,
+	});
+	return createErrorResponse('INTERNAL_ERROR', 500);
+});
 
 export default {
-	async fetch(request: Request, env: Env): Promise<Response> {
-		const pathname = new URL(request.url).pathname;
-
-		try {
-			const route = routes[pathname];
-			if (route) {
-				const handler = route[request.method.toLowerCase()];
-				if (!handler) {
-					return createMethodNotAllowedResponse();
-				}
-
-				return handler(request, env);
-			}
-
-			if (request.method === 'GET' && pathname === '/') {
-				return createHTMLResponse(htmlContent);
-			}
-
-			return createNotFoundResponse();
-		} catch (error: unknown) {
-			logError('newsletter_request_unhandled_error', error, {
-				cf_ray: request.headers.get('cf-ray'),
-				method: request.method,
-				origin: request.headers.get('Origin'),
-				pathname,
-			});
-			return createErrorResponse('INTERNAL_ERROR', 500);
+	fetch(request: Request, env: Env): Promise<Response> {
+		if (request.method === 'HEAD') {
+			return Promise.resolve(createMethodNotAllowedResponse());
 		}
+
+		return Promise.resolve(app.fetch(request, env));
 	},
 };

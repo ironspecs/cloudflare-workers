@@ -16,6 +16,10 @@ binding = "NewslettersD1"
 database_name = "newsletters"
 database_id = "8af56f36-ae7e-4ba6-a8e0-5aa0fe6c16fc"
 
+[[kv_namespaces]]
+binding = "JwksCacheKV"
+id = "f2bab430727d4f7eb2fae005f2e497f9"
+
 [[ratelimits]]
 name = "SESSION_RATE_LIMIT"
 namespace_id = "1001"

@@ -11,6 +11,7 @@ import { getDb } from '../lib/drizzle';
  */
 export type HostnameConfig = {
 	hostname: string;
+	jwks_url: string | null;
 	turnstile_site_key: string | null;
 };
 
