@@ -1,10 +1,11 @@
 import { randomBytes, webcrypto } from 'node:crypto';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import YAML from 'yaml';
+import { syncAllPublicTemplates } from './lib/public-template-sync.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const workspaceDir = resolve(__dirname, '..');
@@ -14,16 +15,6 @@ const ENVELOPE_VERSION = 'v1';
 const IV_LENGTH = 12;
 const workerName = 'newsletters';
 const d1Name = 'newsletters';
-const publicTemplates = [
-	{
-		name: 'daisyui',
-		path: join(workspaceDir, 'examples/templates/tailwind-daisyui-dialog.html'),
-	},
-	{
-		name: 'starter',
-		path: join(workspaceDir, 'examples/templates/starter-dialog.html'),
-	},
-];
 
 const encodeUtf8 = (value) => new TextEncoder().encode(value);
 const toBase64 = (value) => Buffer.from(value).toString('base64');
@@ -177,20 +168,6 @@ const buildHostnameSecretsSql = async (config) => {
 	return statements.join('\n');
 };
 
-const buildPublicTemplatesSql = async () => {
-	const statements = [];
-
-	for (const template of publicTemplates) {
-		const markup = await readFile(template.path, 'utf8');
-		const now = Date.now();
-		statements.push(
-			`INSERT INTO newsletter_template (name, hostname, markup, created_at, updated_at) VALUES (${sqlString(template.name)}, NULL, ${sqlString(markup)}, ${now}, ${now}) ON CONFLICT(name) DO UPDATE SET hostname = excluded.hostname, markup = excluded.markup, updated_at = excluded.updated_at;`,
-		);
-	}
-
-	return statements.join('\n');
-};
-
 const main = async () => {
 	const tempDir = await mkdtemp(join(tmpdir(), 'newsletters-config-sync-'));
 	const sqlPath = join(tempDir, 'sync.sql');
@@ -199,7 +176,7 @@ const main = async () => {
 		const config = await loadEncryptedConfig();
 		const referencedKekIds = await getReferencedKekIds();
 		assertConfigContainsReferencedKeks(config, referencedKekIds);
-		const sql = [await buildHostnameSecretsSql(config), await buildPublicTemplatesSql()].filter(Boolean).join('\n');
+		const sql = await buildHostnameSecretsSql(config);
 
 		await runCommand(['npx', 'wrangler', 'secret', 'put', 'HOSTNAME_CONFIG_KEKS_JSON', '--name', workerName], {
 			stdin: JSON.stringify(config.keks),
@@ -207,6 +184,7 @@ const main = async () => {
 
 		await writeFile(sqlPath, sql, 'utf8');
 		await runCommand(['npx', 'wrangler', 'd1', 'execute', d1Name, '--remote', '--yes', '--file', sqlPath]);
+		await syncAllPublicTemplates();
 
 		const { stdout } = await runCommand([
 			'npx',

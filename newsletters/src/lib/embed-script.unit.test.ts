@@ -33,6 +33,17 @@ describe('createEmbedScript', () => {
 		expect(source).toContain('data-newsletters-email');
 		expect(source).toContain('data-newsletters-turnstile');
 		expect(source).toContain('INVALID_TEMPLATE_FORM');
+		expect(source).toContain('content: root');
+		expect(source).toContain('shell.appendChild(content)');
+		expect(source).toContain('Subscribed!');
+		expect(source).toContain('SUCCESS_TRANSITION_DURATION_MS');
+		expect(source).toContain("generatedEmoji.textContent = '✅'");
+		expect(source).toContain('BACKDROP_FADE_DURATION_MS');
+		expect(source).toContain('playDialogEnterAnimation');
+		expect(source).toContain('playDialogExitAnimation');
+		expect(source).toContain('data-newsletters-success');
+		expect(source).toContain('data-newsletters-success-content');
+		expect(source).toContain('ensureSuccessState');
 		expect(source).toContain('INVALID_TEMPLATE_EMAIL');
 		expect(source).toContain('TURNSTILE_NOT_READY');
 		expect(source).toContain('INVALID_SUBMIT_TOKEN');

@@ -1,11 +1,17 @@
 export const createEmbedScript = () => `
 (() => {
+	const BACKDROP_FADE_DURATION_MS = 240;
+	const DIALOG_FADE_DURATION_MS = 120;
+	const SUCCESS_TRANSITION_DURATION_MS = BACKDROP_FADE_DURATION_MS;
+	const SUCCESS_DISPLAY_DURATION_MS = 2000;
 	const TURNSTILE_URL = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
 	const HOOKS = {
 		close: '[data-newsletters-close]',
 		email: '[data-newsletters-email]',
 		error: '[data-newsletters-error]',
 		personName: '[data-newsletters-person-name]',
+		success: '[data-newsletters-success]',
+		successContent: '[data-newsletters-success-content]',
 		submit: '[data-newsletters-submit]',
 		turnstile: '[data-newsletters-turnstile]',
 	};
@@ -13,6 +19,7 @@ export const createEmbedScript = () => `
 	let turnstileReady;
 
 	const createError = (message) => new Error(message);
+	const wait = (durationMs) => new Promise((resolve) => window.setTimeout(resolve, durationMs));
 
 	if (!scriptSource) {
 		throw createError('INVALID_SCRIPT_SOURCE');
@@ -112,6 +119,48 @@ export const createEmbedScript = () => `
 		}
 
 		dialog.remove();
+	};
+
+	const animateElement = (element, keyframes, options) =>
+		new Promise((resolve) => {
+			const animation = element.animate(keyframes, {
+				fill: 'forwards',
+				...options,
+			});
+			const complete = () => resolve(undefined);
+			animation.addEventListener('cancel', complete, { once: true });
+			animation.addEventListener('finish', complete, { once: true });
+		});
+
+	const playDialogEnterAnimation = (view) => {
+		view.shell.style.background = 'rgba(15,23,42,0)';
+		view.content.style.opacity = '0';
+
+		return Promise.all([
+			animateElement(
+				view.shell,
+				[{ background: 'rgba(15,23,42,0)' }, { background: 'rgba(15,23,42,0.48)' }],
+				{ duration: BACKDROP_FADE_DURATION_MS, easing: 'ease' },
+			),
+			animateElement(view.content, [{ opacity: 0 }, { opacity: 1 }], {
+				duration: DIALOG_FADE_DURATION_MS,
+				easing: 'ease-out',
+			}),
+		]);
+	};
+
+	const playDialogExitAnimation = (view, content) => {
+		return Promise.all([
+			animateElement(
+				view.shell,
+				[{ background: 'rgba(15,23,42,0.48)' }, { background: 'rgba(15,23,42,0)' }],
+				{ duration: BACKDROP_FADE_DURATION_MS, easing: 'ease' },
+			),
+			animateElement(content, [{ opacity: 1 }, { opacity: 0 }], {
+				duration: DIALOG_FADE_DURATION_MS,
+				easing: 'ease-in',
+			}),
+		]);
 	};
 
 	const lockPageScroll = () => {
@@ -215,6 +264,66 @@ export const createEmbedScript = () => `
 		return wrapper.firstElementChild;
 	};
 
+	const ensureSuccessState = (form) => {
+		let successContent = getSingleElement(form, HOOKS.successContent, 'INVALID_TEMPLATE_SUCCESS_CONTENT', false);
+		let successOverlay = getSingleElement(form, HOOKS.success, 'INVALID_TEMPLATE_SUCCESS', false);
+
+		if (!(successContent instanceof HTMLElement)) {
+			const generatedContent = document.createElement('div');
+			generatedContent.setAttribute('style', 'display:flex;flex-direction:column;');
+			while (form.firstChild) {
+				generatedContent.appendChild(form.firstChild);
+			}
+			form.appendChild(generatedContent);
+			successContent = generatedContent;
+		}
+
+		if (!(successOverlay instanceof HTMLElement)) {
+			const generatedOverlay = document.createElement('div');
+			generatedOverlay.setAttribute(
+				'style',
+				[
+					'position:absolute',
+					'inset:0',
+					'display:flex',
+					'align-items:center',
+					'justify-content:center',
+					'flex-direction:column',
+					'gap:8px',
+					'padding:24px',
+					'opacity:0',
+					'pointer-events:none',
+				].join(';'),
+			);
+			const generatedEmoji = document.createElement('p');
+			generatedEmoji.textContent = '✅';
+			generatedEmoji.setAttribute('style', ['margin:0', 'line-height:1'].join(';'));
+			const generatedMessage = document.createElement('p');
+			generatedMessage.textContent = 'Subscribed!';
+			generatedMessage.setAttribute(
+				'style',
+				['margin:0', 'font-size:1.25rem', 'line-height:1.75rem', 'font-weight:600', 'color:inherit'].join(';'),
+			);
+			generatedOverlay.appendChild(generatedEmoji);
+			generatedOverlay.appendChild(generatedMessage);
+			form.appendChild(generatedOverlay);
+			successOverlay = generatedOverlay;
+		}
+
+		if (!form.style.position) {
+			form.style.position = 'relative';
+		}
+
+		successOverlay.setAttribute('aria-hidden', 'true');
+		successOverlay.style.opacity = '0';
+		successOverlay.style.pointerEvents = 'none';
+
+		return {
+			successContent: assertElement(successContent, 'INVALID_TEMPLATE_SUCCESS_CONTENT'),
+			successOverlay: assertElement(successOverlay, 'INVALID_TEMPLATE_SUCCESS'),
+		};
+	};
+
 	const createTemplateMarkupRoot = (markup) => {
 		const wrapper = document.createElement('div');
 		wrapper.innerHTML = markup.trim();
@@ -234,16 +343,28 @@ export const createEmbedScript = () => `
 			throw createError('INVALID_TEMPLATE_FORM');
 		}
 
-		return form;
+		return {
+			content: root,
+			form,
+		};
 	};
 
 	const createDialogView = (templateMarkup) => {
 		const { dialog, shell } = createDialogShell();
-		const form = typeof templateMarkup === 'string' && templateMarkup.length > 0 ? createServerTemplateDialogContent(templateMarkup) : createDefaultDialogContent();
-		shell.appendChild(form);
+		let contentView;
+		if (typeof templateMarkup === 'string' && templateMarkup.length > 0) {
+			contentView = createServerTemplateDialogContent(templateMarkup);
+		} else {
+			const defaultDialogContent = createDefaultDialogContent();
+			contentView = { content: defaultDialogContent, form: defaultDialogContent };
+		}
+		const { content, form } = contentView;
+		const { successContent, successOverlay } = ensureSuccessState(form);
+		shell.appendChild(content);
 
 		return {
 			closeTriggers: getElements(form, HOOKS.close),
+			content,
 			dialog,
 			emailInput: assertTextInput(getSingleElement(form, HOOKS.email, 'INVALID_TEMPLATE_EMAIL'), 'INVALID_TEMPLATE_EMAIL'),
 			errorElement: assertElement(getSingleElement(form, HOOKS.error, 'INVALID_TEMPLATE_ERROR'), 'INVALID_TEMPLATE_ERROR'),
@@ -254,6 +375,8 @@ export const createEmbedScript = () => `
 				false,
 			),
 			shell,
+			successContent,
+			successOverlay,
 			submitTrigger: assertElement(getSingleElement(form, HOOKS.submit, 'INVALID_TEMPLATE_SUBMIT'), 'INVALID_TEMPLATE_SUBMIT'),
 			turnstileContainer: assertElement(
 				getSingleElement(form, HOOKS.turnstile, 'INVALID_TEMPLATE_TURNSTILE'),
@@ -432,20 +555,39 @@ export const createEmbedScript = () => `
 		}
 
 		const onCloseTriggerClick = () => view.dialog.close();
-		for (const closeTrigger of view.closeTriggers) {
-			closeTrigger.addEventListener('click', onCloseTriggerClick);
-		}
-
 		const unlockScroll = lockPageScroll();
 		const onShellClick = (event) => {
 			if (event.target === view.shell) {
 				view.dialog.close();
 			}
 		};
-		view.shell.addEventListener('click', onShellClick);
-		view.dialog.showModal();
 
 		return new Promise((resolve) => {
+			let activeContent = view.content;
+			let isClosing = false;
+			let isSubmitting = false;
+
+			const closeDialog = async () => {
+				if (isClosing) {
+					return;
+				}
+
+				isClosing = true;
+				await playDialogExitAnimation(view, activeContent);
+				view.dialog.close();
+			};
+
+			const onCloseTriggerClick = (event) => {
+				event.preventDefault();
+				void closeDialog();
+			};
+
+			const onShellClick = (event) => {
+				if (event.target === view.shell) {
+					void closeDialog();
+				}
+			};
+
 			const onSubmitTriggerClick = (event) => {
 				if (!shouldInterceptSubmitClick(view.submitTrigger)) {
 					return;
@@ -475,11 +617,17 @@ export const createEmbedScript = () => `
 
 			const onSubmit = async (event) => {
 				event.preventDefault();
+				if (isSubmitting || isClosing) {
+					return;
+				}
+
+				isSubmitting = true;
 
 				try {
 					const turnstileToken = turnstileControl.getToken();
 					if (!turnstileToken) {
 						view.errorElement.textContent = 'TURNSTILE_NOT_READY';
+						isSubmitting = false;
 						return;
 					}
 
@@ -494,20 +642,41 @@ export const createEmbedScript = () => `
 					if (!payload.success) {
 						view.errorElement.textContent = payload.error;
 						turnstileControl.reset();
+						isSubmitting = false;
 						return;
 					}
 
-					cleanup();
-					resolve(undefined);
+					view.successOverlay.setAttribute('aria-hidden', 'false');
+					await Promise.all([
+						animateElement(view.successContent, [{ opacity: 1 }, { opacity: 0 }], {
+							duration: SUCCESS_TRANSITION_DURATION_MS,
+							easing: 'ease-in',
+							fill: 'forwards',
+						}),
+						animateElement(view.successOverlay, [{ opacity: 0 }, { opacity: 1 }], {
+							duration: SUCCESS_TRANSITION_DURATION_MS,
+							easing: 'ease-out',
+							fill: 'forwards',
+						}),
+					]);
+					await wait(SUCCESS_DISPLAY_DURATION_MS);
+					await closeDialog();
 				} catch (submitError) {
 					view.errorElement.textContent = submitError instanceof Error ? submitError.message : String(submitError);
 					turnstileControl.reset();
+					isSubmitting = false;
 				}
 			};
 
+			for (const closeTrigger of view.closeTriggers) {
+				closeTrigger.addEventListener('click', onCloseTriggerClick);
+			}
+			view.shell.addEventListener('click', onShellClick);
 			view.form.addEventListener('submit', onSubmit);
 			view.submitTrigger.addEventListener('click', onSubmitTriggerClick);
 			view.dialog.addEventListener('close', onClose, { once: true });
+			view.dialog.showModal();
+			void playDialogEnterAnimation(view);
 		});
 	};
 
