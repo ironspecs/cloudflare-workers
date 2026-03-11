@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import net from 'node:net';
+import { renderPublicTemplateByName } from './lib/render-public-template.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const workspaceDir = resolve(__dirname, '..');
@@ -26,8 +27,6 @@ const testKeksJson = JSON.stringify({
 });
 const testDekWrapped = 'v1.U+JvHS9wSuC747CG.MhLYqrtoU3looBKOyyjGeAf2/7GlXB6uuQ5o66oD5k44Zux2O3e4Z2tOfXDbivXOFPSi6ds/S082vxSK';
 const testTurnstileSecretCiphertext = 'v1.DkN/GUS12go12qyj.AZJae9HJFXg5IS57zL6bngrN88JWH2uytYp+sSNwMt/BYQfknlbcY/JHCUC6YBnRgm+Z';
-const starterTemplatePath = resolve(workspaceDir, 'examples/templates/starter-dialog.html');
-const daisyuiTemplatePath = resolve(workspaceDir, 'examples/templates/tailwind-daisyui-dialog.html');
 const toBase64Url = (value) => Buffer.from(value).toString('base64url');
 const sqlString = (value) => `'${value.replaceAll("'", "''")}'`;
 
@@ -249,8 +248,8 @@ const main = async () => {
 			workspaceDir,
 		);
 
-		const starterTemplateMarkup = await readFile(starterTemplatePath, 'utf8');
-		const daisyuiTemplateMarkup = await readFile(daisyuiTemplatePath, 'utf8');
+		const starterTemplateMarkup = (await renderPublicTemplateByName('starter')).markup;
+		const daisyuiTemplateMarkup = (await renderPublicTemplateByName('daisyui')).markup;
 		await runCommand(
 			[
 				wranglerBin,

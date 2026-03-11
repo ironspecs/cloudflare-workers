@@ -1,0 +1,16 @@
+{
+	"name": "daisyui",
+	"closeAriaLabel": "Close newsletter dialog",
+	"closeLabel": "✕",
+	"description": "Get product notes, launch updates, and practical software writing without leaving this page.",
+	"dismissLabel": "Not now",
+	"emailPlaceholder": "you@example.com",
+	"eyebrow": "Newsletter",
+	"namePlaceholder": "Ada Lovelace",
+	"showNameField": true,
+	"submitLabel": "Subscribe",
+	"successEmoji": "✅",
+	"successMessage": "Subscribed!",
+	"title": "Join the weekly digest",
+	"turnstileTitle": "Bot check"
+}

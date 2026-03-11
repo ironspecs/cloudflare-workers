@@ -4,6 +4,8 @@
 	"private": true,
 	"scripts": {
 		"config:sync": "node ./scripts/sync-cloudflare-config.mjs",
+		"template:check": "node ./scripts/check-public-templates.mjs",
+		"template:render": "node ./scripts/render-public-template.mjs",
 		"template:sync": "node ./scripts/sync-public-template.mjs",
 		"db:check": "node ../node_modules/drizzle-kit/bin.cjs check --config=drizzle.config.ts",
 		"db:generate": "node ../node_modules/drizzle-kit/bin.cjs generate --config=drizzle.config.ts",

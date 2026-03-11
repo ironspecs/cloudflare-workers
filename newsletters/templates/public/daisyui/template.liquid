@@ -1,4 +1,4 @@
-<template id="newsletter-template-daisyui">
+<template id="newsletter-template-{{ name }}">
 	<style>
 		.newsletter-dialog {
 			--newsletter-spacing-unit: var(--spacing, 0.25rem);
@@ -19,7 +19,8 @@
 			align-items: flex-start;
 			gap: calc(var(--newsletter-spacing-unit) * 4);
 			background: var(--newsletter-surface);
-			padding: calc(var(--newsletter-spacing-unit) * 2) calc(var(--newsletter-spacing-unit) * 3);
+			padding: calc(var(--newsletter-spacing-unit) * 2)
+				calc(var(--newsletter-spacing-unit) * 3);
 		}
 
 		.newsletter-dialog__header-copy {
@@ -75,7 +76,8 @@
 			flex-direction: column;
 			gap: calc(var(--newsletter-spacing-unit) * 4);
 			background: var(--newsletter-surface);
-			padding: calc(var(--newsletter-spacing-unit) * 2) calc(var(--newsletter-spacing-unit) * 3);
+			padding: calc(var(--newsletter-spacing-unit) * 2)
+				calc(var(--newsletter-spacing-unit) * 3);
 		}
 
 		.newsletter-dialog__field {
@@ -128,14 +130,16 @@
 			justify-content: flex-end;
 			gap: calc(var(--newsletter-spacing-unit) * 3);
 			background: var(--color-base-200);
-			padding: calc(var(--newsletter-spacing-unit) * 2) calc(var(--newsletter-spacing-unit) * 3);
+			padding: calc(var(--newsletter-spacing-unit) * 2)
+				calc(var(--newsletter-spacing-unit) * 3);
 		}
 
 		@media (min-width: 48rem) {
 			.newsletter-dialog__header,
 			.newsletter-dialog__body,
 			.newsletter-dialog__actions {
-				padding: calc(var(--newsletter-spacing-unit) * 3) calc(var(--newsletter-spacing-unit) * 4);
+				padding: calc(var(--newsletter-spacing-unit) * 3)
+					calc(var(--newsletter-spacing-unit) * 4);
 			}
 
 			.newsletter-dialog__body {
@@ -172,58 +176,51 @@
 		}
 	</style>
 	<form class="card shadow-2xl newsletter-dialog" method="dialog">
-		<button
-			class="btn btn-ghost btn-circle btn-sm newsletter-dialog__close"
-			data-newsletters-close
-			type="button"
-			aria-label="Close newsletter dialog"
-		>
-			✕
-		</button>
+		{% render 'close-button',
+			class_name: 'btn btn-ghost btn-circle btn-sm newsletter-dialog__close',
+			aria_label: closeAriaLabel,
+			label: closeLabel
+		%}
 		<div class="newsletter-dialog__content" data-newsletters-success-content>
-			<div class="card-title newsletter-dialog__header">
-				<div class="newsletter-dialog__header-copy">
-					<p class="newsletter-dialog__eyebrow">Newsletter</p>
-					<div class="newsletter-dialog__heading-group">
-						<h2 class="newsletter-dialog__title">Join the weekly digest</h2>
-						<p class="newsletter-dialog__description">
-							Get product notes, launch updates, and practical software writing without leaving this page.
-						</p>
-					</div>
-				</div>
-			</div>
-
-			<div class="card-body newsletter-dialog__body">
-				<label class="form-control newsletter-dialog__field">
-					<div class="label newsletter-dialog__label">
-						<span class="label-text newsletter-dialog__label-text">Email</span>
-					</div>
-					<input class="input newsletter-dialog__input" data-newsletters-email type="email" placeholder="you@example.com" required />
-				</label>
-
-				<label class="form-control newsletter-dialog__field">
-					<div class="label newsletter-dialog__label">
-						<span class="label-text newsletter-dialog__label-text">Name</span>
-					</div>
-					<input class="input newsletter-dialog__input" data-newsletters-person-name type="text" placeholder="Ada Lovelace" />
-				</label>
-
-				<div class="rounded-box newsletter-dialog__turnstile">
-					<div class="newsletter-dialog__turnstile-title">Bot check</div>
-					<div data-newsletters-turnstile></div>
-				</div>
-
-				<p class="newsletter-dialog__error" data-newsletters-error></p>
-			</div>
-
-			<div class="card-actions newsletter-dialog__actions">
-				<button class="btn btn-ghost" data-newsletters-close type="button">Not now</button>
-				<button class="btn btn-primary" data-newsletters-submit type="submit">Subscribe</button>
-			</div>
+			{% render 'header',
+				header_class: 'card-title newsletter-dialog__header',
+				header_copy_class: 'newsletter-dialog__header-copy',
+				eyebrow_class: 'newsletter-dialog__eyebrow',
+				heading_group_class: 'newsletter-dialog__heading-group',
+				title_class: 'newsletter-dialog__title',
+				description_class: 'newsletter-dialog__description',
+				eyebrow: eyebrow,
+				title: title,
+				description: description
+			%}
+			{% render 'fields',
+				body_class: 'card-body newsletter-dialog__body',
+				field_class: 'form-control newsletter-dialog__field',
+				label_class: 'label newsletter-dialog__label',
+				label_text_class: 'label-text newsletter-dialog__label-text',
+				input_class: 'input newsletter-dialog__input',
+				email_placeholder: emailPlaceholder,
+				name_placeholder: namePlaceholder,
+				show_name_field: showNameField,
+				turnstile_wrapper_class: 'rounded-box newsletter-dialog__turnstile',
+				turnstile_title_class: 'newsletter-dialog__turnstile-title',
+				turnstile_title: turnstileTitle,
+				error_class: 'newsletter-dialog__error'
+			%}
+			{% render 'actions',
+				actions_class: 'card-actions newsletter-dialog__actions',
+				dismiss_button_class: 'btn btn-ghost',
+				submit_button_class: 'btn btn-primary',
+				dismiss_label: dismissLabel,
+				submit_label: submitLabel
+			%}
 		</div>
-		<div class="newsletter-dialog__success" data-newsletters-success aria-hidden="true">
-			<p class="newsletter-dialog__success-emoji" aria-hidden="true">✅</p>
-			<p class="newsletter-dialog__title newsletter-dialog__success-message">Subscribed!</p>
-		</div>
+		{% render 'success-overlay',
+			success_class: 'newsletter-dialog__success',
+			success_emoji_class: 'newsletter-dialog__success-emoji',
+			success_message_class: 'newsletter-dialog__title newsletter-dialog__success-message',
+			success_emoji: successEmoji,
+			success_message: successMessage
+		%}
 	</form>
 </template>

@@ -20,6 +20,8 @@
 	"dependencies": {
 		"drizzle-orm": "1.0.0-beta.16-ea816b6",
 		"hono": "^4.9.7",
+		"linkedom": "^0.18.12",
+		"liquidjs": "^10.25.0",
 		"valibot": "^1.2.0"
 	},
 	"devDependencies": {

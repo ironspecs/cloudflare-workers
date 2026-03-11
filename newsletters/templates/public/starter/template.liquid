@@ -1,0 +1,224 @@
+<template id="newsletter-template-{{ name }}">
+	<style>
+		.newsletter-starter {
+			--newsletter-spacing-unit: 0.25rem;
+			--newsletter-surface: #ffffff;
+			--newsletter-surface-subtle: #f8fafc;
+			--newsletter-border: #d1d5db;
+			--newsletter-content: #0f172a;
+			--newsletter-error: #b91c1c;
+			position: relative;
+			display: flex;
+			flex-direction: column;
+			width: min(100%, 26rem);
+			border: 1px solid var(--newsletter-border);
+			border-radius: 1.25rem;
+			background: var(--newsletter-surface);
+			box-shadow: 0 24px 64px rgba(15, 23, 42, 0.18);
+		}
+
+		.newsletter-starter__close {
+			position: absolute;
+			top: calc(var(--newsletter-spacing-unit) * 4);
+			right: calc(var(--newsletter-spacing-unit) * 4);
+			border: 0;
+			background: transparent;
+			color: inherit;
+			cursor: pointer;
+			font: inherit;
+		}
+
+		.newsletter-starter__content {
+			display: flex;
+			flex-direction: column;
+		}
+
+		.newsletter-starter__header,
+		.newsletter-starter__body,
+		.newsletter-starter__actions {
+			padding-inline: calc(var(--newsletter-spacing-unit) * 6);
+		}
+
+		.newsletter-starter__header {
+			padding-top: calc(var(--newsletter-spacing-unit) * 6);
+		}
+
+		.newsletter-starter__header-copy,
+		.newsletter-starter__heading-group,
+		.newsletter-starter__body {
+			display: flex;
+			flex-direction: column;
+		}
+
+		.newsletter-starter__header-copy,
+		.newsletter-starter__body {
+			gap: calc(var(--newsletter-spacing-unit) * 4);
+		}
+
+		.newsletter-starter__heading-group {
+			gap: calc(var(--newsletter-spacing-unit) * 2);
+		}
+
+		.newsletter-starter__title,
+		.newsletter-starter__description,
+		.newsletter-starter__label-text,
+		.newsletter-starter__error,
+		.newsletter-starter__success-message,
+		.newsletter-starter__success-emoji {
+			margin: 0;
+			color: var(--newsletter-content);
+		}
+
+		.newsletter-starter__title,
+		.newsletter-starter__success-message {
+			font-size: 1.5rem;
+			line-height: 1.25;
+			font-weight: 600;
+		}
+
+		.newsletter-starter__description {
+			font-size: 1rem;
+			line-height: 1.5rem;
+		}
+
+		.newsletter-starter__field {
+			display: flex;
+			flex-direction: column;
+			gap: calc(var(--newsletter-spacing-unit) * 2);
+		}
+
+		.newsletter-starter__label {
+			padding: 0;
+		}
+
+		.newsletter-starter__label-text {
+			font-size: 1rem;
+			font-weight: 500;
+		}
+
+		.newsletter-starter__input {
+			display: block;
+			width: 100%;
+			padding: 0.875rem 1rem;
+			border: 1px solid var(--newsletter-border);
+			border-radius: 0.75rem;
+			background: var(--newsletter-surface);
+			color: var(--newsletter-content);
+		}
+
+		.newsletter-starter__turnstile {
+			display: flex;
+			flex-direction: column;
+			gap: calc(var(--newsletter-spacing-unit) * 2);
+			min-height: 130px;
+			padding: calc(var(--newsletter-spacing-unit) * 4);
+			border: 1px solid var(--newsletter-border);
+			border-radius: 1rem;
+			background: var(--newsletter-surface-subtle);
+		}
+
+		.newsletter-starter__turnstile-title {
+			margin: 0;
+			font-weight: 500;
+		}
+
+		.newsletter-starter__error {
+			min-height: 1.5rem;
+			color: var(--newsletter-error);
+			font-weight: 500;
+		}
+
+		.newsletter-starter__actions {
+			display: flex;
+			justify-content: flex-end;
+			gap: calc(var(--newsletter-spacing-unit) * 3);
+			padding-top: calc(var(--newsletter-spacing-unit) * 4);
+			padding-bottom: calc(var(--newsletter-spacing-unit) * 6);
+		}
+
+		.newsletter-starter__dismiss,
+		.newsletter-starter__submit {
+			border-radius: 999px;
+			padding: 0.75rem 1rem;
+			font: inherit;
+			cursor: pointer;
+		}
+
+		.newsletter-starter__dismiss {
+			border: 1px solid transparent;
+			background: transparent;
+			color: var(--newsletter-content);
+		}
+
+		.newsletter-starter__submit {
+			border: 1px solid var(--newsletter-content);
+			background: var(--newsletter-content);
+			color: var(--newsletter-surface);
+		}
+
+		.newsletter-starter__success {
+			position: absolute;
+			inset: 0;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			flex-direction: column;
+			gap: calc(var(--newsletter-spacing-unit) * 2);
+			padding: calc(var(--newsletter-spacing-unit) * 6);
+			opacity: 0;
+			pointer-events: none;
+		}
+
+		.newsletter-starter__success-emoji {
+			line-height: 1;
+		}
+	</style>
+	<form class="newsletter-starter" method="dialog">
+		{% render 'close-button',
+			class_name: 'newsletter-starter__close',
+			aria_label: closeAriaLabel,
+			label: closeLabel
+		%}
+		<div class="newsletter-starter__content" data-newsletters-success-content>
+			{% render 'header',
+				header_class: 'newsletter-starter__header',
+				header_copy_class: 'newsletter-starter__header-copy',
+				eyebrow_class: '',
+				heading_group_class: 'newsletter-starter__heading-group',
+				title_class: 'newsletter-starter__title',
+				description_class: 'newsletter-starter__description',
+				eyebrow: eyebrow,
+				title: title,
+				description: description
+			%}
+			{% render 'fields',
+				body_class: 'newsletter-starter__body',
+				field_class: 'newsletter-starter__field',
+				label_class: 'newsletter-starter__label',
+				label_text_class: 'newsletter-starter__label-text',
+				input_class: 'newsletter-starter__input',
+				email_placeholder: emailPlaceholder,
+				name_placeholder: namePlaceholder,
+				show_name_field: showNameField,
+				turnstile_wrapper_class: 'newsletter-starter__turnstile',
+				turnstile_title_class: 'newsletter-starter__turnstile-title',
+				turnstile_title: turnstileTitle,
+				error_class: 'newsletter-starter__error'
+			%}
+			{% render 'actions',
+				actions_class: 'newsletter-starter__actions',
+				dismiss_button_class: 'newsletter-starter__dismiss',
+				submit_button_class: 'newsletter-starter__submit',
+				dismiss_label: dismissLabel,
+				submit_label: submitLabel
+			%}
+		</div>
+		{% render 'success-overlay',
+			success_class: 'newsletter-starter__success',
+			success_emoji_class: 'newsletter-starter__success-emoji',
+			success_message_class: 'newsletter-starter__success-message',
+			success_emoji: successEmoji,
+			success_message: successMessage
+		%}
+	</form>
+</template>

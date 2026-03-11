@@ -1,0 +1,35 @@
+<div class="{{ body_class }}">
+	<label class="{{ field_class }}">
+		<div class="{{ label_class }}">
+			<span class="{{ label_text_class }}">Email</span>
+		</div>
+		<input
+			class="{{ input_class }}"
+			data-newsletters-email
+			type="email"
+			placeholder="{{ email_placeholder }}"
+			required
+		/>
+	</label>
+
+	{% if show_name_field %}
+		<label class="{{ field_class }}">
+			<div class="{{ label_class }}">
+				<span class="{{ label_text_class }}">Name</span>
+			</div>
+			<input
+				class="{{ input_class }}"
+				data-newsletters-person-name
+				type="text"
+				placeholder="{{ name_placeholder }}"
+			/>
+		</label>
+	{% endif %}
+
+	<div class="{{ turnstile_wrapper_class }}">
+		<div class="{{ turnstile_title_class }}">{{ turnstile_title }}</div>
+		<div data-newsletters-turnstile></div>
+	</div>
+
+	<p class="{{ error_class }}" data-newsletters-error></p>
+</div>

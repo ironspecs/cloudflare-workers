@@ -1,0 +1,16 @@
+{
+	"name": "starter",
+	"closeAriaLabel": "Close newsletter dialog",
+	"closeLabel": "Close",
+	"description": "A simple hosted signup flow with bot protection and a fast confirmation state.",
+	"dismissLabel": "Cancel",
+	"emailPlaceholder": "you@example.com",
+	"eyebrow": "",
+	"namePlaceholder": "Ada Lovelace",
+	"showNameField": true,
+	"submitLabel": "Join Weekly",
+	"successEmoji": "✅",
+	"successMessage": "Subscribed!",
+	"title": "Join the newsletter",
+	"turnstileTitle": "Bot check"
+}

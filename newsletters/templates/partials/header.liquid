@@ -1,0 +1,13 @@
+<div class="{{ header_class }}">
+	<div class="{{ header_copy_class }}">
+		{% if eyebrow %}
+			<p class="{{ eyebrow_class }}">{{ eyebrow }}</p>
+		{% endif %}
+		<div class="{{ heading_group_class }}">
+			<h2 class="{{ title_class }}">{{ title }}</h2>
+			{% if description %}
+				<p class="{{ description_class }}">{{ description }}</p>
+			{% endif %}
+		</div>
+	</div>
+</div>

@@ -56,6 +56,26 @@ The snippet defines `window.Newsletters.open()` immediately, queues calls made b
 
 If the built-in templates are not enough, you can upload your own custom template and use it the same way by changing the `template=` value in the script URL. For demos, add `&mode=demo` to the script URL so the worker uses the Cloudflare Turnstile test key and sink behavior.
 
+## Public Template Development
+
+Public templates are authored in Liquid under `templates/public/<name>/` and rendered into HTML during sync.
+
+Useful commands:
+
+```sh
+npm run template:render -- starter
+npm run template:check
+npm run template:sync -- starter
+```
+
+Template source is split into:
+
+- `templates/public/<name>/template.liquid`
+- `templates/public/<name>/data.json`
+- shared partials under `templates/partials/`
+
+The sync path validates the rendered HTML before it is written to D1, so invalid public templates fail fast instead of shipping broken markup.
+
 ## Deep Integration
 
 If you want to own the UI yourself, keep the same bootstrap pattern and use the browser API directly:
